@@ -148,6 +148,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     private var guides: [DesktopPanel] = []
     private var subscription: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
+    private var spaceObserver: NSObjectProtocol?
     private var isVisible = true
     private var editing = false
     private var changedKind: WidgetKind?
@@ -164,9 +165,22 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         screenObserver = NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.rebuildGuides(); self?.reconcile() }
         }
+        spaceObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.restoreAfterSpaceChange() }
+        }
         reconcile()
     }
-    deinit { if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) } }
+    deinit {
+        if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
+        if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
+    }
+    /// Reorder existing desktop panels without recreating views or replaying entrance effects.
+    func restoreAfterSpaceChange() {
+        guard isVisible else { return }
+        finishEntrances()
+        panels.values.forEach { $0.orderFrontRegardless() }
+        updateGuides()
+    }
     /// Prepare under the native lock screen instead of visibly resetting at unlock.
     func prepareUnlock() {
         guard isVisible, !editing, !dragging else { return }
@@ -266,12 +280,14 @@ final class WidgetHost: NSHostingView<WidgetFace> {
             }
             let panel: DesktopPanel
             let host: WidgetHost
+            let isNew = panels[item.kind] == nil
             if let existing = panels[item.kind], let existingHost = existing.contentView as? WidgetHost {
                 panel = existing; host = existingHost
                 if host.rootView.size != item.size { host.rootView = face(item) }
             } else {
                 panel = DesktopPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 panel.isReleasedWhenClosed = false; panel.hidesOnDeactivate = false
+                panel.animationBehavior = .none
                 panel.isOpaque = false; panel.backgroundColor = .clear; panel.hasShadow = false
                 panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 2)
                 panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
@@ -327,7 +343,11 @@ final class WidgetHost: NSHostingView<WidgetFace> {
                     Task { @MainActor [weak self] in self?.reconcile() }
                 }
             }
-            if appearing { host.rootView = face(item); panel.orderFrontRegardless() }
+            if appearing {
+                // A window temporarily omitted by Spaces is not a newly added widget.
+                if !isNew { host.rootView.entrance.finish() }
+                panel.orderFrontRegardless()
+            }
             preferences.widgets[index].x = frame.minX; preferences.widgets[index].y = frame.maxY
         }
         // Equality guard prevents a persistence/reconcile feedback loop.

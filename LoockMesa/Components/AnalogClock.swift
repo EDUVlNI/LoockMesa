@@ -155,6 +155,13 @@ final class WidgetEntranceState: ObservableObject {
     @Published private(set) var progress: CGFloat = 0
     @Published private(set) var isUnlock = false
     private(set) var prepared = false
+    private var hasAppeared = false
+    /// SwiftUI may restart its task after a Space transition. Only a new widget gets an entrance.
+    func appear(reduceMotion: Bool) {
+        guard !hasAppeared, !prepared else { return }
+        hasAppeared = true
+        play(unlock: false, reduceMotion: reduceMotion)
+    }
     private var task: Task<Void, Never>?
     private var generation = 0
     func prepareUnlock() {

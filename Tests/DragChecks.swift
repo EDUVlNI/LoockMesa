@@ -75,6 +75,12 @@ import SwiftUI
         let guide = DesktopPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         guide.coversWholeScreen = true
         if let screen = NSScreen.main { precondition(guide.constrainFrameRect(screen.frame, to: screen) == screen.frame) }
+        let spaceEntrance = WidgetEntranceState()
+        spaceEntrance.appear(reduceMotion: true)
+        spaceEntrance.finish()
+        spaceEntrance.appear(reduceMotion: false)
+        precondition(spaceEntrance.progress == 1, "Space reappearance must not restart the entrance")
+        print("PASS: Space reappearance preserves entrance visibility")
         let entrance = WidgetEntranceState()
         entrance.prepareUnlock()
         precondition(entrance.prepared && entrance.progress == 0)

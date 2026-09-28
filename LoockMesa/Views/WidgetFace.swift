@@ -33,7 +33,7 @@ struct WidgetFace: View {
             .environment(\.frostIntensity, store.preferences.frostAmount(kind))
             .task(id: entryID.uuidString + String(withdrawing)) {
                 if withdrawing { entrance.withdraw(reduceMotion: reduceMotion) }
-                else if !entrance.prepared { entrance.play(unlock: false, reduceMotion: reduceMotion) }
+                else { entrance.appear(reduceMotion: reduceMotion) }
             }
             .onDisappear { entrance.finish() }
             .accessibilityElement(children: .contain)

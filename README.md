@@ -8,7 +8,7 @@ Widgets para a Mesa do macOS Ventura 13.x, desenvolvido em SwiftUI e AppKit para
 
 ## Download
 
-[Baixar Loock Mesa 0.19.0 para Mac Intel](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.0/LoockMesa-0.19.0-Intel.zip)
+[Baixar Loock Mesa 0.19.1 para Mac Intel](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/LoockMesa-0.19.1-Intel.zip)
 
 Requer macOS Ventura 13 ou posterior. Descompacte o ZIP, mova **LoockMesa.app** para **Aplicativos** e abra. Esta versão tem assinatura local (ad hoc), sem notarização Apple; o macOS pode bloquear a primeira abertura. No Ventura, use **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**, se disponível e se confiar no download. Não é necessário desativar as proteções do sistema.
 
@@ -20,6 +20,42 @@ Requer macOS Ventura 13 ou posterior. Descompacte o ZIP, mova **LoockMesa.app** 
 - Música para Apple Music, Spotify e Deezer pelo Reproduzindo Agora do macOS.
 
 Tamanhos P/M/G, encaixe na grade, deslocamento entre widgets, modo de edição, preferências locais e fosco com intensidade individual. Há opção de abrir ao iniciar sessão.
+
+## Demonstrações
+
+Gravações do app em uso. Clique em uma prévia para abrir o vídeo MP4.
+
+### Organização na Mesa
+
+O modo de edição mostra a grade de pontos e os botões de remoção. Arraste os widgets para reorganizar a Mesa; eles se encaixam na grade. O botão “−” remove um widget, que pode ser adicionado novamente pela galeria.
+
+[<img src="docs/demos/organizacao.jpg" width="320" alt="Assistir: Organização na Mesa">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/organizacao.mp4)
+
+[Assistir ao vídeo — Organização na Mesa](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/organizacao.mp4)
+
+### Fosco e aparência
+
+Ajuste o fundo de cada widget para combinar com o wallpaper. O controle de intensidade permite variar entre transparência e fosco, mantendo escolhas individuais para cada widget.
+
+[<img src="docs/demos/aparencia.jpg" width="320" alt="Assistir: Fosco e aparência">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/aparencia.mp4)
+
+[Assistir ao vídeo — Fosco e aparência](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/aparencia.mp4)
+
+### Clima por cidade
+
+Troque a cidade para consultar temperatura, condição atual e previsão. As cores acompanham o clima e o horário. O vídeo também mostra o modo Demonstração, identificado no rodapé, cujos valores são ilustrativos.
+
+[<img src="docs/demos/clima.jpg" width="320" alt="Assistir: Clima por cidade">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/clima.mp4)
+
+[Assistir ao vídeo — Clima por cidade](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/clima.mp4)
+
+### Tamanhos P, M e G
+
+Escolha quanto espaço e informação cada widget ocupa. No clima, P mostra um resumo, M acrescenta a previsão por hora e G inclui os próximos dias.
+
+[<img src="docs/demos/tamanhos.jpg" width="320" alt="Assistir: Tamanhos P, M e G">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/tamanhos.mp4)
+
+[Assistir ao vídeo — Tamanhos P, M e G](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/tamanhos.mp4)
 
 ## Abrir no Xcode
 
