@@ -1,8 +1,16 @@
 # Loock Mesa
 
+<img src="LoockMesa/Resources/AppIcon.png" width="160" alt="Ícone do Loock Mesa">
+
 Widgets para a Mesa do macOS Ventura 13.x, desenvolvido em SwiftUI e AppKit para Mac Intel.
 
 ![Prévia demonstrativa de Música](Preview.png)
+
+## Download
+
+[Baixar Loock Mesa 0.19.0 para Mac Intel](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.0/LoockMesa-0.19.0-Intel.zip)
+
+Requer macOS Ventura 13 ou posterior. Descompacte o ZIP, mova **LoockMesa.app** para **Aplicativos** e abra. Esta versão tem assinatura local (ad hoc), sem notarização Apple; o macOS pode bloquear a primeira abertura. No Ventura, use **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**, se disponível e se confiar no download. Não é necessário desativar as proteções do sistema.
 
 ## Widgets
 
