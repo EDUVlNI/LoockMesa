@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>pt_BR</string>
+	<key>CFBundleDisplayName</key>
+	<string>Loock Mesa</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>LoockMesa</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.18.0</string>
+	<key>CFBundleVersion</key>
+	<string>18</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Loock Mesa consulta eventos para o widget Calendário. Não cria nem altera eventos.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Loock Mesa mostra seus próximos eventos no widget Calendário, somente se você conectar a agenda.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Loock Mesa mostra seus lembretes pendentes somente quando você conecta os Lembretes. Não altera suas listas.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Loock Mesa lê lembretes pendentes para o widget, sem alterá-los.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Loock lê a primeira nota do app Notas apenas quando você conecta essa integração.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+</dict>
+</plist>
