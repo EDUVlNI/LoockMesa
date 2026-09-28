@@ -23,39 +23,35 @@ Tamanhos P/M/G, encaixe na grade, deslocamento entre widgets, modo de edição, 
 
 ## Demonstrações
 
-Gravações do app em uso. Clique em uma prévia para abrir o vídeo MP4.
+Demonstrações animadas do app em uso, exibidas diretamente nesta página.
 
 ### Organização na Mesa
 
 O modo de edição mostra a grade de pontos e os botões de remoção. Arraste os widgets para reorganizar a Mesa; eles se encaixam na grade. O botão “−” remove um widget, que pode ser adicionado novamente pela galeria.
 
-[<img src="docs/demos/organizacao.jpg" width="320" alt="Assistir: Organização na Mesa">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/organizacao.mp4)
+<img src="docs/demos/organizacao.gif" width="320" alt="Demonstração animada: Organização na Mesa">
 
-[Assistir ao vídeo — Organização na Mesa](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/organizacao.mp4)
 
 ### Fosco e aparência
 
 Ajuste o fundo de cada widget para combinar com o wallpaper. O controle de intensidade permite variar entre transparência e fosco, mantendo escolhas individuais para cada widget.
 
-[<img src="docs/demos/aparencia.jpg" width="320" alt="Assistir: Fosco e aparência">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/aparencia.mp4)
+<img src="docs/demos/aparencia.gif" width="320" alt="Demonstração animada: Fosco e aparência">
 
-[Assistir ao vídeo — Fosco e aparência](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/aparencia.mp4)
 
 ### Clima por cidade
 
 Troque a cidade para consultar temperatura, condição atual e previsão. As cores acompanham o clima e o horário. O vídeo também mostra o modo Demonstração, identificado no rodapé, cujos valores são ilustrativos.
 
-[<img src="docs/demos/clima.jpg" width="320" alt="Assistir: Clima por cidade">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/clima.mp4)
+<img src="docs/demos/clima.gif" width="320" alt="Demonstração animada: Clima por cidade">
 
-[Assistir ao vídeo — Clima por cidade](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/clima.mp4)
 
 ### Tamanhos P, M e G
 
 Escolha quanto espaço e informação cada widget ocupa. No clima, P mostra um resumo, M acrescenta a previsão por hora e G inclui os próximos dias.
 
-[<img src="docs/demos/tamanhos.jpg" width="320" alt="Assistir: Tamanhos P, M e G">](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/tamanhos.mp4)
+<img src="docs/demos/tamanhos.gif" width="320" alt="Demonstração animada: Tamanhos P, M e G">
 
-[Assistir ao vídeo — Tamanhos P, M e G](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/tamanhos.mp4)
 
 ## Abrir no Xcode
 
