@@ -19,8 +19,57 @@ struct Checks {
         broken.normalize()
         assert(Set(broken.widgets.map(\.kind)) == Set(WidgetKind.allCases))
         assert(broken.widgets.count == WidgetKind.allCases.count)
+        var legacyClock = DeskPreferences()
+        legacyClock.widgets[2].variant = "digital"
+        legacyClock.widgets[2].size = .large
+        legacyClock.normalize()
+        assert(legacyClock.widgets[2].size == .medium)
         defaults.set(Data("invalid".utf8), forKey: "LoockMesa.preferences.v4")
         assert(DeskStore(defaults: defaults).preferences == DeskPreferences())
+        let focusScreen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let focusWindow = DesktopFocusWindow(ownerPID: 42, layer: 0, alpha: 1, bounds: CGRect(x: 20, y: 20, width: 900, height: 700))
+        assert(!DesktopFocusPolicy.isDesktop(frontmostID: "com.apple.Safari", ownID: "loock", frontmostPID: 42, windows: [focusWindow], screens: [focusScreen]))
+        assert(DesktopFocusPolicy.isDesktop(frontmostID: "com.apple.Safari", ownID: "loock", frontmostPID: 42, windows: [], screens: [focusScreen]))
+        assert(DesktopFocusPolicy.isDesktop(frontmostID: "com.apple.finder", ownID: "loock", frontmostPID: 42, windows: [focusWindow], screens: [focusScreen]))
+        let offscreen = DesktopFocusWindow(ownerPID: 42, layer: 0, alpha: 1, bounds: focusWindow.bounds.offsetBy(dx: 1600, dy: 0))
+        let overlay = DesktopFocusWindow(ownerPID: 42, layer: 25, alpha: 1, bounds: focusWindow.bounds)
+        assert(DesktopFocusPolicy.isDesktop(frontmostID: "com.apple.Safari", ownID: "loock", frontmostPID: 42, windows: [offscreen, overlay], screens: [focusScreen]))
+        print("PASS: desktop focus follows visible foreground windows, ignores overlays and offscreen windows")
+        let before = ClockHandAngles(hour: 6.2, minute: 6.25, second: 6.26)
+        let after = ClockHandAngles(hour: 0.05, minute: 0.06, second: 0.07)
+        let forward = before.forward(to: after)
+        assert(forward.hour >= before.hour && forward.hour < before.hour + 2 * .pi)
+        assert(forward.minute >= before.minute && forward.second >= before.second)
+        assert(abs(forward.second.truncatingRemainder(dividingBy: 2 * .pi) - after.second) < 0.000001)
+        let middle = before.interpolated(to: forward, progress: 0.5)
+        assert(middle.second > before.second && middle.second < forward.second)
+        assert(before.interpolated(to: forward, progress: 1) == forward)
+        print("PASS: clock recovery crosses twelve clockwise, interpolates and reaches the correct angles")
+        var styles = DeskPreferences()
+        styles.surface = .transparent
+        styles.individualSurface = [WidgetKind.clock.rawValue: .original]
+        styles.individualAppearance = [WidgetKind.clock.rawValue: .light]
+        styles.widgets[2].variant = "digital"
+        let restoredStyles = try! JSONDecoder().decode(DeskPreferences.self, from: JSONEncoder().encode(styles))
+        assert(restoredStyles.surfaceStyle(.clock) == .original)
+        assert(restoredStyles.surfaceStyle(.weather) == .transparent)
+        assert(restoredStyles.appearanceStyle(.clock) == .light)
+        assert(restoredStyles.widgets[2].variant == "digital")
+        var weatherColors = DeskPreferences()
+        weatherColors.appearance = .dark
+        assert(weatherColors.appearanceStyle(.weather) == .original)
+        weatherColors.individualAppearance = [WidgetKind.weather.rawValue: .light]
+        assert(weatherColors.appearanceStyle(.weather) == .light)
+        var retired = DeskPreferences()
+        retired.widgets.append(WidgetItem(kind: .screenTime, size: .medium))
+        retired.surface = .transparent
+        retired.individualSurface = [WidgetKind.clock.rawValue: .transparent]
+        retired.monochrome = true
+        retired.normalize()
+        assert(!retired.widgets.contains(where: { $0.kind == .screenTime }))
+        assert(retired.surface == .frosted && retired.surfaceStyle(.clock) == .frosted && !retired.monochrome)
+        assert(WidgetSurface.allCases == [.original, .frosted])
+        print("PASS: surface overrides, variant persistence, retired modes and Screen Time migration")
         let screen = CGRect(x: -1440, y: 50, width: 1440, height: 850)
         let outside = CGRect(x: -2000, y: 2000, width: 344, height: 344)
         let clamped = clampedFrame(outside, within: screen)
@@ -78,7 +127,7 @@ struct Checks {
         oldPrefs.widgets = [WidgetItem(kind: .headphones, x: 200, y: 600)]
         oldDefaults.set(try JSONEncoder().encode(oldPrefs), forKey: "LoockMesa.preferences.v1")
         let migrated = DeskStore(defaults: oldDefaults)
-        assert(!migrated.preferences.demoHeadphones && migrated.preferences.liveWeather && migrated.preferences.widgets.count == 7)
+        assert(!migrated.preferences.demoHeadphones && migrated.preferences.liveWeather && migrated.preferences.widgets.count == WidgetKind.allCases.count)
         assert(migrated.item(.headphones).x == 200)
         oldDefaults.removePersistentDomain(forName: migration)
         var legacy = DeskPreferences()

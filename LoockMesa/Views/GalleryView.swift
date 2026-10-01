@@ -4,7 +4,7 @@ import AppKit
 struct GalleryView: View {
     @ObservedObject var store: DeskStore
     @ObservedObject var devices: DeviceService
-    @ObservedObject var weather: WeatherService
+    let weather: WeatherService
     @ObservedObject var bluetooth: BluetoothBatteryService
     @ObservedObject var agenda: AgendaService
     var finishEditing: () -> Void = {}
@@ -12,43 +12,107 @@ struct GalleryView: View {
     @StateObject private var previewEntrance = WidgetEntranceState()
     @State private var previewEntryID = UUID()
     @State private var selected: WidgetKind = .headphones
-    @State private var general = true
+    @State private var general = false
+    @State private var allWidgets = true
+    @State private var search = ""
+    private var categories: [WidgetKind] { WidgetKind.allCases.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) } }
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    settingsIcon("square.grid.2x2.fill", color: .blue)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Loock Mesa").font(.headline)
-                        Text("Ajustes dos widgets").font(.caption).foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("Buscar widgets", text: $search).textFieldStyle(.roundedBorder)
+                    ScrollView {
+                        VStack(spacing: 5) {
+                            sidebarRow("Todos os widgets", symbol: "square.grid.2x2", color: .blue, active: allWidgets && !general) { allWidgets = true; general = false }
+                            ForEach(categories) { kind in
+                                sidebarRow(kind.title, symbol: kind.symbol, color: iconColor(kind), active: !general && !allWidgets && selected == kind) {
+                                    selected = kind; general = false; allWidgets = false
+                                }
+                            }
+                            Divider().padding(.vertical, 8)
+                            sidebarRow("Ajustes gerais", symbol: "gearshape.fill", color: .gray, active: general) { general = true }
+                        }
                     }
-                }.padding(.vertical, 20).padding(.horizontal, 10)
-                sidebarRow("Geral", symbol: "gearshape.fill", color: .gray, active: general) { general = true }
-                Text("Widgets").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary).padding(.top, 20).padding(.leading, 10).padding(.bottom, 5)
-                ForEach(WidgetKind.allCases) { kind in
-                    sidebarRow(kind.title, symbol: kind.symbol, color: iconColor(kind), active: !general && selected == kind) {
-                        selected = kind; general = false
-                    }
-                }
-                Spacer()
-                Text("Loock Mesa 0.18 · Ventura").font(.system(size: 10)).foregroundStyle(.secondary).padding(10)
-            }.padding(10).frame(width: 220).frame(maxHeight: .infinity).background(SettingsSidebarMaterial())
-            Divider()
-            VStack(spacing: 0) {
-                HStack {
-                    Text(general ? "Geral" : selected.title).font(.system(size: 21, weight: .bold))
-                    Spacer()
-                    Button("Concluído", action: finishEditing).keyboardShortcut(.defaultAction)
-                }.padding(22)
+                }.padding(16).frame(width: 190)
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if general { generalSettings } else { widgetSettings }
-                    }.padding(24).frame(maxWidth: 720).frame(maxWidth: .infinity)
+                    LazyVStack(alignment: .leading, spacing: 22) {
+                        if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
+                        else {
+                            ForEach(allWidgets ? categories : categories.filter { $0 == selected }) { kind in
+                                catalogue(kind)
+                            }
+                            if categories.isEmpty { Text("Nenhum widget encontrado.").foregroundStyle(.secondary) }
+                            if !allWidgets {
+                                DisclosureGroup("Personalizar " + selected.title) { widgetSettings.padding(.top, 16) }
+                            }
+                        }
+                    }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
+                }.mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 22)
+                    }
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity).background(Color(nsColor: .windowBackgroundColor))
-        }.frame(minWidth: 850, minHeight: 650).buttonStyle(GalleryButtonStyle())
-            .onReceive(NotificationCenter.default.publisher(for: .loockSelectMusic)) { _ in selected = .music; general = false }
+            }
+            Divider()
+            HStack {
+                Text(store.layoutMessage.isEmpty ? "Arraste um widget para a Mesa. Escolha o tamanho pela prévia." : store.layoutMessage)
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(action: finishEditing) { Text("Concluído").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white).padding(.horizontal, 15).padding(.vertical, 7).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 6)) }.buttonStyle(.plain).keyboardShortcut(.defaultAction)
+            }.padding(.horizontal, 18).padding(.vertical, 12)
+        }.background(SettingsSidebarMaterial())
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .onAppear { previewEntrance.finish() }
+            .onReceive(NotificationCenter.default.publisher(for: .loockSelectMusic)) { _ in selected = .music; general = false; allWidgets = false }
+    }
+    private func catalogue(_ kind: WidgetKind) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(kind.title).font(.headline)
+            ForEach(variants(kind), id: \.self) { variant in
+                Text(variantTitle(kind, variant)).font(.subheadline).foregroundStyle(.secondary)
+                GeometryReader { proxy in
+                    let scale = min(0.75, max(0.25, (proxy.size.width - 32) / 852))
+                    HStack(alignment: .bottom, spacing: 16) {
+                        ForEach(availableSizes(kind, variant)) { size in
+                            VStack(spacing: 10) {
+                                DraggableWidgetPreview(face: WidgetFace(variant: variant, entrance: previewEntrance, preview: true, kind: kind, size: size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda), payload: GalleryWidgetPayload(kind: kind, size: size, variant: variant))
+                                    .frame(width: size.dimensions.width, height: size.dimensions.height)
+                                    .scaleEffect(scale).frame(width: size.dimensions.width * scale, height: size.dimensions.height * scale)
+                                    .accessibilityLabel("Arrastar " + kind.title + " " + size.rawValue)
+                                    .overlay(alignment: .topLeading) {
+                                        Button {
+                                            let screen = NSScreen.main?.visibleFrame ?? .zero
+                                            let point = CGPoint(x: screen.minX + size.dimensions.width / 2 + 24, y: screen.maxY - size.dimensions.height / 2 - 24)
+                                            NotificationCenter.default.post(name: .loockGalleryDrop, object: GalleryWidgetPayload(kind: kind, size: size, variant: variant), userInfo: ["point": point])
+                                        } label: {
+                                            Image(systemName: "plus").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
+                                                .frame(width: 26, height: 26).background(Color.green, in: Circle())
+                                        }.buttonStyle(.plain).offset(x: -6, y: -6)
+                                            .accessibilityLabel("Adicionar " + kind.title + " " + size.rawValue)
+                                    }
+
+                                Text(size.rawValue).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }.frame(height: 285)
+            }
+            Divider()
+        }
+    }
+    private func variants(_ kind: WidgetKind) -> [String] {
+        kind == .clock ? ["analog", "digital"] : kind == .calendar ? ["month", "date"] : ["standard"]
+    }
+    private func availableSizes(_ kind: WidgetKind, _ variant: String) -> [WidgetSize] {
+        if kind == .calendar && variant == "date" { return [.medium] }
+        if kind == .clock && variant == "digital" { return [.small, .medium] }
+        return WidgetSize.allCases
+    }
+    private func variantTitle(_ kind: WidgetKind, _ variant: String) -> String {
+        switch variant { case "analog": return "Analógico"; case "digital": return "Digital"; case "month": return "Mês e eventos"; case "date": return "Data"; default: return kind.title }
     }
     private func settingToggle(_ title: String, value: Binding<Bool>) -> some View {
         HStack { Text(title); Spacer(); Toggle(title, isOn: value).labelsHidden().toggleStyle(.switch) }
@@ -70,16 +134,15 @@ struct GalleryView: View {
                     ForEach(WidgetAppearance.allCases) { Text($0.rawValue).tag($0) }
                 }
                 Divider()
-                settingToggle("Preto e branco", value: $store.preferences.monochrome)
-                Divider()
-                settingToggle("Fundo fosco", value: Binding(get: { store.preferences.unifiedFrost != false }, set: { store.preferences.unifiedFrost = $0 }))
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack { Text("Intensidade padrão"); Spacer(); Text("\(Int((store.preferences.unifiedFrostIntensity ?? 0.7) * 100))%").foregroundStyle(.secondary) }
-                    Slider(value: Binding(get: { store.preferences.unifiedFrostIntensity ?? 0.7 }, set: { store.preferences.unifiedFrostIntensity = $0; store.preferences.unifiedFrost = true }), in: 0...1)
-                    HStack { Text("Transparente"); Spacer(); Text("Fosco") }.font(.caption).foregroundStyle(.secondary)
+                Picker("Superfície", selection: Binding(get: { store.preferences.surface ?? .frosted }, set: { store.preferences.surface = $0 })) {
+                    ForEach(WidgetSurface.allCases) { Text($0.rawValue).tag($0) }
                 }
+                Text("Original mantém o fundo sólido. Fosco usa o material translúcido nativo do macOS.").font(.caption).foregroundStyle(.secondary)
+                Slider(value: Binding(get: { store.preferences.unifiedFrostIntensity ?? 0.7 }, set: { store.preferences.unifiedFrostIntensity = $0 }), in: 0...1) { Text("Intensidade do fundo") }
+                Divider()
+                settingToggle("Fosco fora da Mesa", value: Binding(get: { store.preferences.frostedOutsideDesktop == true }, set: { store.preferences.frostedOutsideDesktop = $0 }))
+                Text("Ao usar outro app, aplica uma camada fosca translúcida e suaviza as cores sem transformar os widgets em preto e branco.").font(.caption).foregroundStyle(.secondary)
             }
-            Text("Padrão para widgets sem personalização. Cada widget pode ter seu próprio fosco. O clima mantém o fundo meteorológico.").font(.caption).foregroundStyle(.secondary)
             settingsGroup("Interação") {
                 settingToggle("Abrir o app ao clicar no widget", value: Binding(get: { store.preferences.opensAppsOnClick != false }, set: { store.preferences.opensAppsOnClick = $0 }))
                 Divider()
@@ -92,51 +155,40 @@ struct GalleryView: View {
     }
     private var widgetSettings: some View {
         VStack(alignment: .leading, spacing: 20) {
-            settingsGroup("Na Mesa") {
-                Toggle("Mostrar " + selected.title, isOn: Binding(get: { store.item(selected).enabled }, set: { value in store.update(selected) { $0.enabled = value } })).toggleStyle(.switch)
-                Divider()
-                Picker("Tamanho", selection: Binding(get: { store.item(selected).size }, set: { value in store.update(selected) { $0.size = value } })) {
-                    ForEach(WidgetSize.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented)
-            }
-            if selected != .weather {
-                settingsGroup("Fundo deste widget") {
-                    settingToggle("Fosco", value: Binding(get: { store.preferences.usesFrost(selected) }, set: { value in
-                        var values = store.preferences.individualFrost ?? [:]; values[selected.rawValue] = value; store.preferences.individualFrost = values
-                    }))
-                    HStack { Text("Intensidade"); Spacer(); Text("\(Int(store.preferences.frostAmount(selected) * 100))%") }
-                    Slider(value: Binding(get: { store.preferences.frostAmount(selected) }, set: { value in
-                        var values = store.preferences.individualIntensity ?? [:]; values[selected.rawValue] = value; store.preferences.individualIntensity = values
-                        var flags = store.preferences.individualFrost ?? [:]; flags[selected.rawValue] = true; store.preferences.individualFrost = flags
-                    }), in: 0...1)
-                    HStack { Text("Transparente").font(.caption); Spacer(); Button("Usar padrão geral") {
-                        store.preferences.individualFrost?.removeValue(forKey: selected.rawValue)
-                        store.preferences.individualIntensity?.removeValue(forKey: selected.rawValue)
-                    } }
+            settingsGroup("Aparência individual") {
+                Picker("Cores", selection: Binding<WidgetAppearance?>(get: { store.preferences.individualAppearance?[selected.rawValue] }, set: { style in
+                    var values = store.preferences.individualAppearance ?? [:]
+                    values[selected.rawValue] = style
+                    store.preferences.individualAppearance = values
+                })) {
+                    Text(selected == .weather ? "Cores do tempo" : "Usar cores gerais").tag(Optional<WidgetAppearance>.none)
+                    ForEach(WidgetAppearance.allCases) { Text($0.rawValue).tag(Optional($0)) }
                 }
+                Divider()
+                Picker("Fundo", selection: Binding<WidgetSurface?>(get: { store.preferences.individualSurface?[selected.rawValue] }, set: { style in
+                    var values = store.preferences.individualSurface ?? [:]
+                    values[selected.rawValue] = style
+                    store.preferences.individualSurface = values
+                })) {
+                    Text("Usar fundo geral").tag(Optional<WidgetSurface>.none)
+                    ForEach(WidgetSurface.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                }
+                if store.preferences.surfaceStyle(selected) == .frosted {
+                    Slider(value: Binding(get: { store.preferences.frostAmount(selected) }, set: { amount in
+                        var values = store.preferences.individualIntensity ?? [:]; values[selected.rawValue] = amount; store.preferences.individualIntensity = values
+                    }), in: 0...1) { Text("Intensidade") }
+                }
+                Text("Escolha Branco ou Preto nas cores e Original ou Fosco no fundo. O Clima Original mantém as cores do tempo.").font(.caption).foregroundStyle(.secondary)
             }
-            ZStack {
-                RoundedRectangle(cornerRadius: 16).fill(Color.primary.opacity(0.035))
-                WidgetFace(entryID: previewEntryID, entrance: previewEntrance, kind: selected, size: store.item(selected).size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda)
-                    .overlay(alignment: .topLeading) {
-                        Button { store.update(selected) { $0.enabled = true } } label: {
-                            Image(systemName: store.item(selected).enabled ? "checkmark" : "plus")
-                                .font(.system(size: 16, weight: .medium)).foregroundStyle(.white)
-                                .frame(width: 27, height: 27).background(store.item(selected).enabled ? Color.gray : Color.green, in: Circle())
-                        }.buttonStyle(.plain).disabled(store.item(selected).enabled).offset(x: -8, y: -8)
-                            .accessibilityLabel("Adicionar " + selected.title)
-                    }
-            }.frame(height: store.item(selected).size == .large ? 382 : 216)
             settingsGroup("Opções") { options }
-            HStack { Button("Abrir app do Mac") { openWidgetApp(selected) }; Spacer(); Button("Ajustar aparência") { general = true } }
-            if !store.layoutMessage.isEmpty { Text(store.layoutMessage).font(.caption).foregroundStyle(.orange) }
+            Text("Arraste outra prévia para substituir o tamanho ou modelo deste widget. Há uma instância por categoria na Mesa.").font(.caption).foregroundStyle(.secondary)
         }
     }
     private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 13, content: content).padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
         }.font(.system(size: 13))
     }
@@ -153,10 +205,13 @@ struct GalleryView: View {
         }.buttonStyle(.plain)
     }
     private func iconColor(_ kind: WidgetKind) -> Color {
-        switch kind { case .music: return .pink; case .headphones, .macBattery: return .green; case .weather: return .blue; case .clock: return .gray; case .calendar: return .red; case .reminders: return .orange; case .notes: return .yellow }
+        switch kind { case .screenTime: return .purple; case .music: return .pink; case .headphones, .macBattery: return .green; case .weather: return .blue; case .clock: return .gray; case .calendar: return .red; case .reminders: return .orange; case .notes: return .yellow }
     }
     @ViewBuilder private var options: some View {
         switch selected {
+        case .screenTime:
+            Text("O Ventura não fornece ao Loock o relatório geral do Tempo de Uso. Este widget indica a indisponibilidade, sem dados fictícios.").font(.caption)
+            Button("Abrir Tempo de Uso") { openWidgetApp(.screenTime) }
         case .music: MusicOptions(store: store, media: MusicService.shared)
         case .headphones:
             VStack(alignment: .leading, spacing: 9) {

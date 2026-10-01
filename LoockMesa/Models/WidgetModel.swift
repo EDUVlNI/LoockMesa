@@ -1,11 +1,12 @@
 import SwiftUI
 
 enum WidgetKind: String, CaseIterable, Codable, Identifiable {
-    case headphones, macBattery, weather, clock, calendar, reminders, notes, music
+    case headphones, macBattery, weather, clock, calendar, reminders, notes, music, screenTime
+    // screenTime remains decodable only to migrate older saved layouts.
     static var allCases: [WidgetKind] { [.headphones, .weather, .clock, .calendar, .reminders, .notes, .music] }
     var id: String { rawValue }
-    var title: String { switch self { case .music: return "Música"; case .headphones: return "Baterias"; case .weather: return "Clima"; case .clock: return "Relógio"; case .macBattery: return "Bateria do Mac"; case .reminders: return "Lembretes"; case .notes: return "Notas"; case .calendar: return "Calendário" } }
-    var symbol: String { switch self { case .music: return "music.note"; case .headphones: return "headphones"; case .weather: return "cloud.sun.fill"; case .clock: return "clock"; case .macBattery: return "laptopcomputer"; case .reminders: return "list.bullet"; case .notes: return "note.text"; case .calendar: return "calendar" } }
+    var title: String { switch self { case .screenTime: return "Tempo de Uso"; case .music: return "Música"; case .headphones: return "Baterias"; case .weather: return "Clima"; case .clock: return "Relógio"; case .macBattery: return "Bateria do Mac"; case .reminders: return "Lembretes"; case .notes: return "Notas"; case .calendar: return "Calendário" } }
+    var symbol: String { switch self { case .screenTime: return "hourglass"; case .music: return "music.note"; case .headphones: return "headphones"; case .weather: return "cloud.sun.fill"; case .clock: return "clock"; case .macBattery: return "laptopcomputer"; case .reminders: return "list.bullet"; case .notes: return "note.text"; case .calendar: return "calendar" } }
 }
 enum WidgetSize: String, CaseIterable, Codable, Identifiable {
     case small = "P", medium = "M", large = "G"
@@ -18,6 +19,7 @@ enum WidgetSize: String, CaseIterable, Codable, Identifiable {
 }
 struct WidgetItem: Codable, Equatable, Identifiable {
     let kind: WidgetKind
+    var variant: String? = nil
     var size: WidgetSize = .small
     var enabled = true
     var x: Double?
@@ -38,6 +40,15 @@ enum WidgetAppearance: String, Codable, CaseIterable, Identifiable {
 }
 struct DeskPreferences: Codable, Equatable {
     var widgets = [WidgetItem(kind: .headphones, size: .medium), WidgetItem(kind: .weather, size: .medium), WidgetItem(kind: .clock), WidgetItem(kind: .calendar), WidgetItem(kind: .reminders, enabled: false), WidgetItem(kind: .notes, enabled: false), WidgetItem(kind: .music, size: .medium, enabled: false)]
+    var surface: WidgetSurface? = nil
+    var individualSurface: [String: WidgetSurface]? = nil
+    var individualAppearance: [String: WidgetAppearance]? = nil
+    func surfaceStyle(_ kind: WidgetKind) -> WidgetSurface {
+        individualSurface?[kind.rawValue] ?? surface ?? (usesFrost(kind) ? .frosted : .original)
+    }
+    func appearanceStyle(_ kind: WidgetKind) -> WidgetAppearance {
+        individualAppearance?[kind.rawValue] ?? (kind == .weather ? .original : (appearance ?? .original))
+    }
     var automaticSpotifyCovers: Bool? = nil
     var musicProvider: MusicProvider? = nil
     var musicShortcuts: [MusicShortcut]? = nil
@@ -60,19 +71,32 @@ struct DeskPreferences: Codable, Equatable {
     var frostedBattery: Bool? = nil
     var appearance: WidgetAppearance? = nil
     var monochrome = false
+    var frostedOutsideDesktop: Bool? = nil
     var positionsLocked = false
     mutating func normalize() {
+        monochrome = false
         if let mac = widgets.first(where: { $0.kind == .macBattery }),
            !widgets.contains(where: { $0.kind == .headphones && $0.enabled }) {
             widgets.removeAll { $0.kind == .headphones }
             widgets.append(WidgetItem(kind: .headphones, size: mac.size, enabled: mac.enabled, x: mac.x, y: mac.y))
         }
-        widgets.removeAll { $0.kind == .macBattery }
+        widgets.removeAll { $0.kind == .macBattery || $0.kind == .screenTime }
+        if surface == .transparent { surface = .frosted }
+        if var values = individualSurface {
+            for (key, style) in values where style == .transparent { values[key] = .frosted }
+            values.removeValue(forKey: WidgetKind.screenTime.rawValue)
+            individualSurface = values
+        }
+        individualAppearance?.removeValue(forKey: WidgetKind.screenTime.rawValue)
         var seen = Set<WidgetKind>()
         widgets = widgets.filter { seen.insert($0.kind).inserted }
-        widgets += WidgetKind.allCases.filter { !seen.contains($0) }.map { WidgetItem(kind: $0, enabled: $0 != .reminders && $0 != .notes && $0 != .music) }
+        widgets += WidgetKind.allCases.filter { !seen.contains($0) }.map { WidgetItem(kind: $0, enabled: $0 != .reminders && $0 != .notes && $0 != .music && $0 != .screenTime) }
         for i in widgets.indices {
             if widgets[i].x?.isFinite == false || widgets[i].y?.isFinite == false { widgets[i].x = nil; widgets[i].y = nil }
+            if widgets[i].kind == .clock && widgets[i].variant == "digital" && widgets[i].size == .large {
+                widgets[i].size = .medium
+            }
+            if widgets[i].kind == .calendar && widgets[i].variant == "date" { widgets[i].size = .medium }
         }
     }
 }
@@ -120,5 +144,59 @@ enum MacGlyph: String {
         if model.hasPrefix("MacBook") || model == "Mac14,7" { return .classicNotebook }
         if model.hasPrefix("iMac") || model.hasPrefix("Macmini") || model.hasPrefix("MacPro") { return .desktop }
         return .generic
+    }
+}
+
+enum WidgetSurface: String, Codable, CaseIterable, Identifiable {
+    case original = "Original", frosted = "Fosco", transparent = "Transparente"
+    // transparent remains decodable only to migrate older preferences.
+    static var allCases: [WidgetSurface] { [.original, .frosted] }
+    var id: String { rawValue }
+}
+
+struct DesktopFocusWindow {
+    let ownerPID: Int32
+    let layer: Int
+    let alpha: Double
+    let bounds: CGRect
+}
+enum DesktopFocusPolicy {
+    static func isDesktop(frontmostID: String?, ownID: String?, frontmostPID: Int32,
+                          windows: [DesktopFocusWindow], screens: [CGRect]) -> Bool {
+        if frontmostID == "com.apple.finder" || (ownID != nil && frontmostID == ownID) { return true }
+        return !windows.contains { window in
+            window.ownerPID == frontmostPID && window.layer == 0 && window.alpha > 0.01 &&
+            window.bounds.width > 40 && window.bounds.height > 40 &&
+            screens.contains { $0.intersection(window.bounds).width > 20 && $0.intersection(window.bounds).height > 20 }
+        }
+    }
+}
+
+struct ClockHandAngles: Equatable {
+    var hour: Double
+    var minute: Double
+    var second: Double
+    static func at(_ date: Date) -> Self {
+        let c = Calendar.current.dateComponents([.hour, .minute, .second], from: date)
+        let fraction = date.timeIntervalSince1970 - floor(date.timeIntervalSince1970)
+        let seconds = Double(c.second ?? 0) + fraction
+        let minutes = Double(c.minute ?? 0) + seconds / 60
+        return Self(hour: (Double((c.hour ?? 0) % 12) + minutes / 60) * .pi / 6,
+                    minute: minutes * .pi / 30, second: seconds * .pi / 30)
+    }
+    func forward(to target: Self) -> Self {
+        func next(_ current: Double, _ target: Double) -> Double {
+            let turn = 2 * Double.pi
+            let delta = (target - current).truncatingRemainder(dividingBy: turn)
+            let positive = delta < 0 ? delta + turn : delta
+            return current + (positive < 0.000001 || turn - positive < 0.000001 ? 0 : positive)
+        }
+        return Self(hour: next(hour, target.hour), minute: next(minute, target.minute), second: next(second, target.second))
+    }
+    func interpolated(to target: Self, progress: Double) -> Self {
+        let p = min(1, max(0, progress))
+        return Self(hour: hour + (target.hour - hour) * p,
+                    minute: minute + (target.minute - minute) * p,
+                    second: second + (target.second - second) * p)
     }
 }

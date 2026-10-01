@@ -1,3 +1,5 @@
+> **Versão 0.29.0:** nova galeria, personalização individual e relógios com atualização real, pausa e recuperação animada. Veja [as correções dos relógios](CHANGELOG-0.29.md).
+
 # Loock Mesa
 
 <img src="LoockMesa/Resources/AppIcon.png" width="160" alt="Ícone do Loock Mesa">
@@ -8,9 +10,15 @@ Widgets para a Mesa do macOS Ventura 13.x, desenvolvido em SwiftUI e AppKit para
 
 ## Download
 
-[Baixar Loock Mesa 0.19.1 para Mac Intel](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.19.1/LoockMesa-0.19.1-Intel.zip)
+[Baixar Loock Mesa 0.29.0 para Mac Intel](https://github.com/EDUVlNI/LoockMesa/releases/download/v0.29.0/LoockMesa-0.29.0-Intel.zip)
 
 Requer macOS Ventura 13 ou posterior. Descompacte o ZIP, mova **LoockMesa.app** para **Aplicativos** e abra. Esta versão tem assinatura local (ad hoc), sem notarização Apple; o macOS pode bloquear a primeira abertura. No Ventura, use **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**, se disponível e se confiar no download. Não é necessário desativar as proteções do sistema.
+
+## Galeria e personalização
+
+Painel que surge pela parte inferior da tela, com busca, categorias e prévias para arrastar até a Mesa. O botão verde “+” também adiciona o widget. Os tamanhos disponíveis aparecem lado a lado; o relógio digital oferece P e M, e o calendário de data oferece M.
+
+Cada widget permite escolher cores Original, Branco ou Preto e fundo Original ou Fosco, com intensidade individual. A opção “Fosco fora da Mesa” suaviza as cores e mistura o material translúcido ao abrir outros aplicativos. O relógio analógico pausa nesse modo e recupera a hora ao retornar. O clima Original acompanha o horário e a condição meteorológica.
 
 ## Widgets
 
@@ -19,7 +27,7 @@ Requer macOS Ventura 13 ou posterior. Descompacte o ZIP, mova **LoockMesa.app** 
 - Relógio, calendário, lembretes e notas.
 - Música para Apple Music, Spotify e Deezer pelo Reproduzindo Agora do macOS.
 
-Tamanhos P/M/G, encaixe na grade, deslocamento entre widgets, modo de edição, preferências locais e fosco com intensidade individual. Há opção de abrir ao iniciar sessão.
+Tamanhos conforme o widget, encaixe na grade, deslocamento entre widgets, modo de edição, preferências locais e fosco com intensidade individual. Há opção de abrir ao iniciar sessão.
 
 ## Demonstrações
 
@@ -34,7 +42,7 @@ O modo de edição mostra a grade de pontos e os botões de remoção. Arraste o
 
 ### Fosco e aparência
 
-Ajuste o fundo de cada widget para combinar com o wallpaper. O controle de intensidade permite variar entre transparência e fosco, mantendo escolhas individuais para cada widget.
+Ajuste o fundo de cada widget para combinar com o wallpaper. Cada widget pode usar superfície Original ou Fosco e cores Original, Branco ou Preto, mantendo escolhas individuais.
 
 <img src="docs/demos/aparencia.gif" width="320" alt="Demonstração animada: Fosco e aparência">
 
@@ -83,9 +91,10 @@ A integração de música usa **MediaRemote, um framework privado**, carregado d
 ```sh
 bash Tests/run.sh
 bash Tests/run-ui-checks.sh
+bash Tests/run-clock-checks.sh
 ```
 
-Os testes cobrem persistência, migração, grade, baterias, filtragem de players, controles de música e callbacks atrasados. Os testes de player usam fontes simuladas e não comprovam reprodução real nos três aplicativos. Testes que dependem de tela informam quando não podem executar sem sessão gráfica.
+Os testes cobrem persistência, migração, grade, baterias, filtragem de players, controles de música e callbacks atrasados. Os testes de player usam fontes simuladas e não comprovam reprodução real nos três aplicativos. Os testes de renderização dos relógios verificam movimento, pausa e recuperação em capturas sucessivas. Testes que dependem de tela informam quando não podem executar sem sessão gráfica.
 
 ## Créditos
 

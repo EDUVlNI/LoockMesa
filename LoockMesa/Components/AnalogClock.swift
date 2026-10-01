@@ -23,7 +23,7 @@ struct AnalogClock: View {
                 }
                 for n in 1...12 {
                     let angle = Double(n) * .pi / 6
-                    context.draw(Text("\(n)").font(.system(size: side * 0.12, weight: .regular)).foregroundColor(ink), at: CGPoint(x: center.x + sin(angle) * radius * 0.68, y: center.y - cos(angle) * radius * 0.68))
+                    context.draw(Text("\(n)").font(.system(size: side * 0.12, weight: .bold, design: .rounded)).foregroundColor(ink), at: CGPoint(x: center.x + sin(angle) * radius * 0.68, y: center.y - cos(angle) * radius * 0.68))
                 }
                 let c = Calendar.current.dateComponents([.hour, .minute, .second], from: date)
                 let minute = Double(c.minute ?? 0); let second = Double(c.second ?? 0)
@@ -49,7 +49,8 @@ struct BatteryRing: View {
     var charging = false
     var light = false
     var monochrome = false
-    private var accent: Color { monochrome ? ink : Color(red: 0.20, green: 0.88, blue: 0.30) }
+    var lowPower = false
+    private var accent: Color { lowPower ? .yellow : monochrome ? ink : Color(red: 0.20, green: 0.88, blue: 0.30) }
     private var ink: Color { light ? .black : .white }
     var body: some View {
         ZStack {
@@ -141,12 +142,16 @@ enum CardPalette {
 /// Solid cards share a neutral palette; frosted cards retain the native backdrop
 /// without an opaque tint, preserving wallpaper colors and individual intensity.
 struct HarmonizedCardBackground: View {
+    @Environment(\.widgetPreview) private var preview
     var light: Bool
     var frosted: Bool
+    @Environment(\.clearWidgetSurface) private var clearSurface
     var body: some View {
-        if frosted {
-            FrostedWidgetBackground(light: light).allowsHitTesting(false)
-        } else { CardPalette.base(light: light) }
+        if clearSurface { Color.clear } else if frosted && preview {
+            CardPalette.base(light: light).opacity(0.78)
+        } else if frosted {
+            FrostedWidgetBackground(light: light).allowsHitTesting(false).transition(.opacity)
+        } else { CardPalette.base(light: light).transition(.opacity) }
     }
 }
 

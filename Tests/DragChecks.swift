@@ -4,11 +4,79 @@ import SwiftUI
 @main struct DragChecks {
     @MainActor static func main() {
         _ = NSApplication.shared
+        let payload = GalleryWidgetPayload(kind: .clock, size: .large, variant: "digital")
+        let restoredPayload = try! JSONDecoder().decode(GalleryWidgetPayload.self, from: JSONEncoder().encode(payload))
+        precondition(restoredPayload.kind == .clock && restoredPayload.size == .large && restoredPayload.variant == "digital")
+        print("PASS: gallery drag payload preserves widget, variant and size")
+        for size in WidgetSize.allCases {
+            let dimensions = size.dimensions
+            let rect = CGRect(x: 7, y: 7, width: dimensions.width - 14, height: dimensions.height - 14)
+            for index in 0..<60 {
+                let mark = ClockPerimeter.mark(index: index, in: rect, corner: 16)
+                precondition(mark.point.x >= rect.minX - 0.001 && mark.point.x <= rect.maxX + 0.001)
+                precondition(mark.point.y >= rect.minY - 0.001 && mark.point.y <= rect.maxY + 0.001)
+                precondition(abs(hypot(mark.normal.dx, mark.normal.dy) - 1) < 0.001)
+            }
+            precondition(abs(ClockPerimeter.mark(index: 0, in: rect, corner: 16).point.x - rect.midX) < 0.001)
+            precondition(abs(ClockPerimeter.mark(index: 15, in: rect, corner: 16).point.y - rect.midY) < 0.001)
+        }
+        print("PASS: clock tick marks follow all P/M/G contours with a seven-point edge margin")
+        let liveClock = ClockPlaybackState()
+        liveClock.configure(live: true, inactive: false, lowPower: false, reduceMotion: true)
+        let initialDate = liveClock.snapshot.date
+        let initialAngles = liveClock.angles
+        liveClock.configure(live: true, inactive: false, lowPower: false, reduceMotion: true)
+        precondition(liveClock.timerStarts == 1 && liveClock.isTicking, "Repeated view updates must not restart or duplicate timers")
+        RunLoop.main.run(until: Date().addingTimeInterval(1.25))
+        precondition(liveClock.snapshot.date > initialDate && liveClock.angles != initialAngles, "A live clock must advance without TimelineView callbacks")
+        liveClock.setSystemPaused(true)
+        let sleepingDate = liveClock.snapshot.date
+        precondition(!liveClock.isTicking)
+        RunLoop.main.run(until: Date().addingTimeInterval(1.1))
+        precondition(liveClock.snapshot.date == sleepingDate, "Sleeping/hidden clocks must not wake for ticks")
+        liveClock.setSystemPaused(false)
+        precondition(liveClock.isTicking && liveClock.snapshot.date > sleepingDate)
+        liveClock.configure(live: true, inactive: true, lowPower: false, reduceMotion: true)
+        precondition(!liveClock.isTicking)
+        liveClock.configure(live: true, inactive: false, lowPower: false, reduceMotion: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.9))
+        precondition(liveClock.isTicking)
+        liveClock.stop()
+        precondition(!liveClock.isTicking)
+        let previewClock = ClockPlaybackState()
+        previewClock.configure(live: false, inactive: false, lowPower: false, reduceMotion: false)
+        precondition(!previewClock.isTicking && previewClock.timerStarts == 0)
+        print("PASS: live clock timer advances actual time, starts once, pauses for sleep/hidden/desktop focus and keeps previews static")
+        let clock = ClockPlaybackState()
+        clock.setInactive(true, reduceMotion: false)
+        let frozen = clock.angles
+        clock.tick(Date().addingTimeInterval(120))
+        precondition(clock.angles == frozen, "Inactive clocks must keep their displayed hand positions")
+        clock.setInactive(false, at: Date().addingTimeInterval(20), reduceMotion: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+        precondition(clock.angles != frozen, "Returning must animate from the frozen positions")
+        clock.setInactive(true, reduceMotion: false)
+        let interrupted = clock.angles
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        precondition(clock.angles == interrupted, "Leaving again cancels the recovery without stale updates")
+        let resumeDate = Date()
+        clock.setInactive(false, at: resumeDate, reduceMotion: true)
+        let expected = ClockHandAngles.at(resumeDate)
+        precondition(abs(clock.angles.second.truncatingRemainder(dividingBy: 2 * .pi) - expected.second) < 0.00001)
+        print("PASS: clock freezes, recovers, cancels recovery and respects Reduce Motion")
         let defaults = UserDefaults(suiteName: "LoockMesa.dragChecks")!
         defer { defaults.removePersistentDomain(forName: "LoockMesa.dragChecks") }
         let host = WidgetHost(rootView: WidgetFace(kind: .headphones, size: .medium,
             store: DeskStore(defaults: defaults), devices: DeviceService(),
             weather: WeatherService(preview: .demo), bluetooth: BluetoothBatteryService(automatic: false), agenda: AgendaService()))
+        let galleryHost = GalleryDragHost(rootView: host.rootView, payload: payload)
+        let container = NSView(frame: CGRect(x: 0, y: 0, width: 700, height: 500))
+        galleryHost.frame = CGRect(x: 40, y: 70, width: 344, height: 164)
+        container.addSubview(galleryHost)
+        galleryHost.layoutSubtreeIfNeeded()
+        precondition(galleryHost.hitTest(CGPoint(x: 100, y: 100)) === galleryHost, "Gallery must capture pointer over hosted SwiftUI content")
+        precondition(galleryHost.hitTest(CGPoint(x: 10, y: 10)) == nil, "Outside gallery bounds must not capture input")
+        print("PASS: gallery native drag host owns preview hit target and rejects outside points")
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         var starts = 0

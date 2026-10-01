@@ -1,48 +1,84 @@
 import SwiftUI
 
 struct WidgetFace: View {
+    var variant: String? = nil
+    private var chosenVariant: String { variant ?? store.item(kind).variant ?? "analog" }
+    private var outsideDesktopEffect: Bool { !preview && desktopInactive && store.preferences.frostedOutsideDesktop == true }
+    private var frost: Bool { store.preferences.surfaceStyle(kind) == .frosted || outsideDesktopEffect }
+    private var appearance: WidgetAppearance { store.preferences.appearanceStyle(kind) }
+    private var styleToken: String {
+        "\(appearance.rawValue)-\(store.preferences.surfaceStyle(kind).rawValue)"
+    }
     var withdrawing = false
     var entryID = UUID()
     var entrance = WidgetEntranceState()
+    var preview = false
+    var desktopInactive = false
     var music = MusicService.shared
     let kind: WidgetKind
     let size: WidgetSize
     @ObservedObject var store: DeskStore
     @ObservedObject var devices: DeviceService
-    @ObservedObject var weather: WeatherService
-    @ObservedObject var bluetooth: BluetoothBatteryService
-    @ObservedObject var agenda: AgendaService
+    let weather: WeatherService
+    let bluetooth: BluetoothBatteryService
+    let agenda: AgendaService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         Group {
             switch kind {
-            case .music: MusicWidget(size: size, store: store, media: music)
-            case .headphones: HeadphonesWidget(size: size, demo: store.preferences.demoHeadphones, bluetooth: bluetooth, devices: devices, light: store.preferences.appearance == .light, frosted: store.preferences.usesFrost(kind), monochrome: store.preferences.monochrome)
-            case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather)
-            case .clock: ClockWidget(size: size, dark: store.preferences.appearance != .light, frosted: store.preferences.usesFrost(kind))
-            case .macBattery: MacBatteryWidget(size: size, devices: devices)
-            case .reminders: RemindersWidget(size: size, agenda: agenda, light: store.preferences.appearance == .light, frosted: store.preferences.usesFrost(kind))
-            case .notes: NotesWidget(size: size, store: store, agenda: agenda, light: store.preferences.appearance == .light, frosted: store.preferences.usesFrost(kind))
-            case .calendar: CalendarWidget(size: size, agenda: agenda, dark: store.preferences.appearance != .light, frosted: store.preferences.usesFrost(kind))
+            case .music: MusicWidget(size: size, store: store, media: music, appearance: appearance, forcedFrosted: frost)
+            case .headphones: HeadphonesWidget(size: size, demo: store.preferences.demoHeadphones, bluetooth: bluetooth, devices: devices, light: appearance == .light, frosted: frost, monochrome: false)
+            case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather, appearance: appearance, frosted: frost)
+            case .clock: ModernClockWidget(size: size, digital: chosenVariant == "digital", dark: appearance != .light, frosted: frost, lowPower: devices.lowPower, desktopInactive: outsideDesktopEffect)
+            case .macBattery: MacBatteryWidget(size: size, devices: devices, light: appearance == .light, frosted: frost)
+            case .reminders: RemindersWidget(size: size, agenda: agenda, light: appearance == .light, frosted: frost)
+            case .notes: NotesWidget(size: size, store: store, agenda: agenda, light: appearance == .light, frosted: frost)
+            case .screenTime: EmptyView()
+            case .calendar: if chosenVariant == "date" { DateCardWidget(size: size, dark: appearance != .light, frosted: frost) } else { CalendarWidget(size: size, agenda: agenda, dark: appearance != .light, frosted: frost) }
             }
-        }.frame(width: size.dimensions.width, height: size.dimensions.height)
+        }.environment(\.clearWidgetSurface, false)
+            .environment(\.widgetPreview, preview)
+            .saturation(store.preferences.monochrome ? 0 : (outsideDesktopEffect ? 0.94 : 1))
+            .opacity(1)
+            .frame(width: size.dimensions.width, height: size.dimensions.height)
             .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
-            
-            .saturation(store.preferences.monochrome ? 0 : 1)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: outsideDesktopEffect)
+            .modifier(WidgetStyleChangeEffect(token: styleToken))
             .modifier(WidgetEntranceEffect(state: entrance))
-            .environment(\.frostIntensity, store.preferences.frostAmount(kind))
-            .task(id: entryID.uuidString + String(withdrawing)) {
-                if withdrawing { entrance.withdraw(reduceMotion: reduceMotion) }
+            .environment(\.frostIntensity, outsideDesktopEffect ? min(0.82, max(0.58, store.preferences.frostAmount(kind))) : store.preferences.frostAmount(kind))
+            .task(id: preview ? "preview-" + kind.rawValue + size.rawValue : entryID.uuidString + String(withdrawing)) {
+                if preview { if entrance.progress != 1 { entrance.finish() } }
+                else if withdrawing { entrance.withdraw(reduceMotion: reduceMotion) }
                 else { entrance.appear(reduceMotion: reduceMotion) }
             }
-            .onDisappear { entrance.finish() }
+            .onDisappear { if !preview { entrance.finish() } }
             .accessibilityElement(children: .contain)
+    }
+}
+
+private struct WidgetStyleChangeEffect: ViewModifier {
+    let token: String
+    @State private var progress: CGFloat = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func body(content: Content) -> some View {
+        content
+            .blur(radius: reduceMotion ? 0 : (1 - progress) * 4)
+            .scaleEffect(reduceMotion ? 1 : 0.985 + progress * 0.015)
+            .opacity(0.76 + progress * 0.24)
+            .onChange(of: token) { _ in
+                guard !reduceMotion else { progress = 1; return }
+                var transaction = Transaction(animation: nil); transaction.disablesAnimations = true
+                withTransaction(transaction) { progress = 0 }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.32)) { progress = 1 }
+                }
+            }
     }
 }
 struct HeadphonesWidget: View {
     let size: WidgetSize
     let demo: Bool
-    @ObservedObject var bluetooth: BluetoothBatteryService
+    let bluetooth: BluetoothBatteryService
     @ObservedObject var devices: DeviceService
     var light = false
     var frosted = false
@@ -57,18 +93,21 @@ struct HeadphonesWidget: View {
     private var dimension: CGFloat { size == .small ? 57 : size == .medium ? 60 : 96 }
     var body: some View {
         Group {
-            if size == .medium {
+            if size == .small && devices.lowPower && entries.count == 1 {
+                VStack(alignment: .leading, spacing: 17) {
+                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 55, charging: devices.charging, light: light, lowPower: true)
+                    AnimatedValue(value: "\(devices.macBattery ?? 0)%").font(.system(size: 36, weight: .regular))
+                }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
+            } else if size == .medium {
                 HStack(spacing: 0) {
                     ForEach(0..<capacity, id: \.self) { slot($0).frame(maxWidth: .infinity) }
                 }.padding(.horizontal, 17)
             } else if size == .large {
-                VStack(spacing: 24) {
-                    ForEach(0..<2, id: \.self) { row in
-                        HStack(spacing: 24) {
-                            ForEach(0..<2, id: \.self) { column in
-                                slot(row * 2 + column).frame(width: 128, height: 136)
-                            }
-                        }
+                GeometryReader { geometry in
+                    ForEach(0..<4, id: \.self) { index in
+                        slot(index)
+                            .position(x: geometry.size.width * (index % 2 == 0 ? 0.25 : 0.75),
+                                      y: geometry.size.height * (index < 2 ? 0.25 : 0.75) + 20)
                     }
                 }
             } else {
@@ -90,7 +129,7 @@ struct HeadphonesWidget: View {
         return VStack(spacing: size == .large ? 12 : 14) {
             BatteryRing(symbol: entry?.symbol ?? "", value: entry?.value, dimension: dimension,
                 freeClip: entry?.freeClip ?? false, charging: entry?.charging ?? false,
-                light: light, monochrome: monochrome)
+                light: light, monochrome: monochrome, lowPower: entry?.symbol == "laptopcomputer" && devices.lowPower)
             if size != .small {
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     AnimatedValue(value: entry.map { String($0.value) } ?? "0")
@@ -113,23 +152,25 @@ struct HeadphonesWidget: View {
 struct MacBatteryWidget: View {
     let size: WidgetSize
     @ObservedObject var devices: DeviceService
+    var light = false
+    var frosted = false
     var body: some View {
         Group {
             if size == .medium {
                 HStack(spacing: 23) {
-                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 98, charging: devices.charging)
+                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 98, charging: devices.charging, light: light)
                     VStack(alignment: .leading, spacing: 6) { details }
                     Spacer(minLength: 0)
                 }.padding(23)
             } else {
                 VStack(alignment: .leading, spacing: size == .large ? 18 : 6) {
-                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: size == .large ? 166 : 65, charging: devices.charging)
+                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: size == .large ? 166 : 65, charging: devices.charging, light: light)
                         .frame(maxWidth: .infinity).padding(.top, size == .large ? 12 : 0)
                     details
                 }.padding(size == .large ? 26 : 17)
             }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).foregroundStyle(.white)
-            .background(LinearGradient(colors: [Color(white: 0.20), Color(white: 0.12)], startPoint: .top, endPoint: .bottom))
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading).foregroundStyle(light ? .black : .white)
+            .background(HarmonizedCardBackground(light: light, frosted: frosted))
     }
     private var details: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -176,6 +217,9 @@ struct WeatherWidget: View {
     let size: WidgetSize
     let city: String
     @ObservedObject var service: WeatherService
+    var appearance: WidgetAppearance = .original
+    var frosted = false
+    private var light: Bool { appearance == .light }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let data = service.snapshot {
@@ -200,24 +244,24 @@ struct WeatherWidget: View {
                             Text("Máx. \(data.high)°  Mín. \(data.low)°").font(.system(size: 10))
                         }.padding(.top, 2)
                     }
-                    if size == .large { Divider().overlay(.white.opacity(0.2)).padding(.vertical, 9) }
+                    if size == .large { Divider().overlay((light ? Color.black : .white).opacity(0.2)).padding(.vertical, 9) }
                     HStack {
                         ForEach(Array(data.hours.enumerated()), id: \.offset) { _, hour in
                             VStack(spacing: 5) {
-                                Text(hour.label).font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.75))
+                                Text(hour.label).font(.system(size: 10, weight: .medium)).foregroundStyle((light ? Color.black : .white).opacity(0.75))
                                 Image(systemName: WeatherSnapshot.symbol(hour.code, isDay: hour.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 15))
                                 Text("\(hour.temperature)°").font(.system(size: 13, weight: .medium))
                             }.frame(maxWidth: .infinity)
                         }
                     }
                     if size == .large {
-                        Divider().overlay(.white.opacity(0.2)).padding(.vertical, 10)
+                        Divider().overlay((light ? Color.black : .white).opacity(0.2)).padding(.vertical, 10)
                         VStack(spacing: 10) {
                             ForEach(Array((data.days.count > 4 ? Array(data.days.dropFirst().prefix(4)) : data.days).enumerated()), id: \.offset) { _, day in
                                 HStack(spacing: 10) {
                                     Text(day.label).frame(width: 56, alignment: .leading)
                                     Image(systemName: WeatherSnapshot.symbol(day.code)).symbolRenderingMode(.multicolor).frame(width: 22)
-                                    Text("\(day.low)°").foregroundStyle(.white.opacity(0.65)).frame(width: 26)
+                                    Text("\(day.low)°").foregroundStyle((light ? Color.black : .white).opacity(0.65)).frame(width: 26)
                                     TemperatureRange(low: day.low, high: day.high, minimum: data.days.map(\.low).min() ?? day.low, maximum: data.days.map(\.high).max() ?? day.high)
                                     Text("\(day.high)°").frame(width: 26)
                                 }.font(.system(size: 12, weight: .medium))
@@ -235,18 +279,22 @@ struct WeatherWidget: View {
                 Text(service.status).font(.caption)
                 Spacer()
             }
-        }.padding(size == .small ? 15 : 16).foregroundStyle(.white)
+        }.padding(size == .small ? 15 : 16).foregroundStyle(light ? .black : .white)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(WeatherBackground(snapshot: service.snapshot))
+            .background {
+                if frosted { HarmonizedCardBackground(light: light, frosted: true).transition(.opacity) }
+                else if appearance == .original { WeatherBackground(snapshot: service.snapshot).transition(.opacity) }
+                else { HarmonizedCardBackground(light: light, frosted: false).transition(.opacity) }
+            }
     }
     private var sourceLabel: some View {
-        Text(service.status).font(.system(size: 8, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+        Text(service.status).font(.system(size: 8, weight: .medium)).foregroundStyle((light ? Color.black : .white).opacity(0.65)).lineLimit(1)
     }
 }
 
 struct RemindersWidget: View {
     let size: WidgetSize
-    @ObservedObject var agenda: AgendaService
+    let agenda: AgendaService
     var light = false
     var frosted = false
     var body: some View {
@@ -274,9 +322,10 @@ struct RemindersWidget: View {
     }
 }
 struct NotesWidget: View {
+    @Environment(\.clearWidgetSurface) private var clearSurface
     let size: WidgetSize
     @ObservedObject var store: DeskStore
-    @ObservedObject var agenda: AgendaService
+    let agenda: AgendaService
     var light = false
     var frosted = false
     private var title: String { let t = agenda.notesConnected ? agenda.noteTitle : store.preferences.localNoteTitle ?? ""; return t.isEmpty ? "Nova Nota" : t }
@@ -289,7 +338,7 @@ struct NotesWidget: View {
                 Spacer()
             }.font(.system(size: 12)).foregroundStyle(.white).padding(.horizontal, 16)
                 .frame(height: size == .large ? 52 : 40)
-                .background(LinearGradient(colors: [.yellow, Color(red: 1, green: 0.72, blue: 0)], startPoint: .top, endPoint: .bottom))
+                .background { if !clearSurface { LinearGradient(colors: [.yellow, Color(red: 1, green: 0.72, blue: 0)], startPoint: .top, endPoint: .bottom) } }
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(1)
                 Text(text).font(.system(size: 12)).opacity(0.6).lineLimit(size == .large ? 10 : size == .medium ? 2 : 3)

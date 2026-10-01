@@ -6,11 +6,14 @@ struct MusicWidget: View {
     let size: WidgetSize
     @ObservedObject var store: DeskStore
     @ObservedObject var media: MusicService
-    private var light: Bool { store.preferences.appearance == .light }
+    var appearance: WidgetAppearance? = nil
+    var forcedFrosted: Bool? = nil
+    @Environment(\.clearWidgetSurface) private var clearSurface
+    private var light: Bool { !clearSurface && (appearance ?? store.preferences.appearanceStyle(.music)) == .light }
     private var layout: MusicLayout { MusicLayout(size: size) }
     var body: some View {
         ZStack(alignment: .topLeading) {
-            HarmonizedCardBackground(light: light, frosted: store.preferences.usesFrost(.music))
+            HarmonizedCardBackground(light: light, frosted: forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted))
             if size != .small {
                 Rectangle().fill(Color.black.opacity(light ? 0.035 : 0.09))
                     .frame(height: size.dimensions.height - layout.dividerY).offset(y: layout.dividerY)

@@ -81,7 +81,7 @@ final class AgendaService: ObservableObject {
     private var observer: NSObjectProtocol?
     private var timer: Timer?
     private var paused = false
-    func setPaused(_ value: Bool) { paused = value; if !value { refresh() } }
+    func setPaused(_ value: Bool) { guard paused != value else { return }; paused = value; if !value { refresh() } }
     init() {
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in self?.refresh() }
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in self?.refresh() }
@@ -116,6 +116,7 @@ final class AgendaService: ObservableObject {
 func openWidgetApp(_ kind: WidgetKind) {
     let identifier: String
     switch kind {
+    case .screenTime: NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Screen-Time-Settings.extension")!); return
     case .music: MusicService.shared.openSource(); return
     case .calendar: identifier = "com.apple.iCal"
     case .reminders: identifier = "com.apple.reminders"

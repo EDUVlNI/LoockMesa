@@ -60,13 +60,22 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         let active = editing && !movementLocked && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         if !active { layer?.removeAnimation(forKey: "editWiggle"); return }
         guard layer?.animation(forKey: "editWiggle") == nil else { return }
+        guard let layer else { return }
+        // AppKit can create hosting layers with a corner anchor. Preserve the frame
+        // while moving the animation pivot to the visual center of the card.
+        if layer.anchorPoint != CGPoint(x: 0.5, y: 0.5) {
+            let oldFrame = layer.frame
+            layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            layer.frame = oldFrame
+        }
         let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        animation.values = [-0.009, 0.007, -0.006, 0.009, -0.009]
+        animation.values = [0, 0.0055, 0, -0.0055, 0]
         animation.keyTimes = [0, 0.25, 0.5, 0.75, 1]
-        animation.calculationMode = .cubic
-        animation.duration = 0.42 + Double(rootView.kind.rawValue.count % 3) * 0.025
+        animation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+        animation.calculationMode = .linear
+        animation.duration = 0.84 + Double(rootView.kind.rawValue.count % 3) * 0.04
         animation.repeatCount = .infinity
-        layer?.add(animation, forKey: "editWiggle")
+        layer.add(animation, forKey: "editWiggle")
     }
     @objc private func removeFromDesktop() { removeWidget?() }
     override func layout() {
@@ -132,6 +141,22 @@ final class WidgetHost: NSHostingView<WidgetFace> {
             add("Tamanho \(size.rawValue)", checked: rootView.size == size) { [weak self] in self?.resizeWidget?(size) }
         }
         menu.addItem(.separator())
+        for style in WidgetAppearance.allCases {
+            add(style.rawValue, checked: rootView.store.preferences.appearanceStyle(rootView.kind) == style && rootView.store.preferences.surfaceStyle(rootView.kind) == .original) { [weak self] in
+                guard let self else { return }
+                var value = self.rootView.store.preferences
+                var colors = value.individualAppearance ?? [:]; colors[self.rootView.kind.rawValue] = style; value.individualAppearance = colors
+                var surfaces = value.individualSurface ?? [:]; surfaces[self.rootView.kind.rawValue] = .original; value.individualSurface = surfaces
+                self.rootView.store.preferences = value
+            }
+        }
+        add("Fosco", checked: rootView.store.preferences.surfaceStyle(rootView.kind) == .frosted) { [weak self] in
+            guard let self else { return }
+            var value = self.rootView.store.preferences
+            var surfaces = value.individualSurface ?? [:]; surfaces[self.rootView.kind.rawValue] = .frosted; value.individualSurface = surfaces
+            self.rootView.store.preferences = value
+        }
+        menu.addItem(.separator())
         add("Personalizar widgets…") { [weak self] in self?.configure?() }
         add("Remover da Mesa") { [weak self] in self?.removeWidget?() }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
@@ -146,11 +171,15 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     var showSettings: (() -> Void)?
     private var panels: [WidgetKind: DesktopPanel] = [:]
     private var guides: [DesktopPanel] = []
+    private var guidesVisible = false
+    private var guideGeneration = 0
+    private var guideFade: Task<Void, Never>?
     private var subscription: AnyCancellable?
     private var screenObserver: NSObjectProtocol?
     private var spaceObserver: NSObjectProtocol?
     private var isVisible = true
     private var editing = false
+    private var desktopActive = true
     private var changedKind: WidgetKind?
     private var reconciling = false
     private var dragging = false
@@ -171,6 +200,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         reconcile()
     }
     deinit {
+        guideFade?.cancel()
         if let screenObserver { NotificationCenter.default.removeObserver(screenObserver) }
         if let spaceObserver { NSWorkspace.shared.notificationCenter.removeObserver(spaceObserver) }
     }
@@ -209,26 +239,81 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     }
     func setVisible(_ visible: Bool) { finishEntrances(); isVisible = visible; reconcile() }
     func setEditing(_ enabled: Bool) { finishEntrances(); editing = enabled; panels.values.forEach { ($0.contentView as? WidgetHost)?.editing = enabled }; updateGuides() }
-    private func rebuildGuides() { guides.forEach { $0.orderOut(nil) }; guides.removeAll(); updateGuides() }
+    func setDesktopActive(_ active: Bool) {
+        guard desktopActive != active else { return }
+        desktopActive = active
+        for panel in panels.values {
+            guard let host = panel.contentView as? WidgetHost else { continue }
+            var face = host.rootView
+            face.desktopInactive = !active
+            host.rootView = face
+        }
+    }
+    private func rebuildGuides() {
+        guideFade?.cancel()
+        guideGeneration += 1
+        guides.forEach { $0.orderOut(nil) }; guides.removeAll(); guidesVisible = false
+        updateGuides()
+    }
     private func updateGuides() {
-        guard editing && isVisible && !store.preferences.positionsLocked else { guides.forEach { $0.orderOut(nil) }; return }
+        let show = editing && isVisible && !store.preferences.positionsLocked
+        guard show else {
+            guard guidesVisible else { return }
+            guidesVisible = false; guideGeneration += 1
+            fadeGuides(to: 0)
+            return
+        }
         if guides.count != NSScreen.screens.count {
-            guides.forEach { $0.orderOut(nil) }; guides.removeAll()
-            for screen in NSScreen.screens {
-                let panel = DesktopPanel(contentRect: screen.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            guideGeneration += 1
+            guides.forEach { $0.orderOut(nil) }; guides.removeAll(); guidesVisible = false
+            for _ in NSScreen.screens {
+                let panel = DesktopPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
                 panel.coversWholeScreen = true
                 panel.backgroundColor = .clear; panel.isOpaque = false; panel.hasShadow = false
                 panel.ignoresMouseEvents = true; panel.hidesOnDeactivate = false
                 panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.desktopIconWindow)) + 1)
-                panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
-                panel.contentView = NSHostingView(rootView: DesktopGridView(topInset: screen.frame.maxY - screen.visibleFrame.maxY, leftInset: screen.visibleFrame.minX - screen.frame.minX))
+                panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+                let view = DesktopGuideView(frame: .zero)
+                view.autoresizingMask = [.width, .height]
+                panel.contentView = view
+                panel.alphaValue = 0
                 guides.append(panel)
             }
         }
         for (panel, screen) in zip(guides, NSScreen.screens) {
             panel.setFrame(screen.frame, display: true)
-            panel.contentView?.frame = CGRect(origin: .zero, size: screen.frame.size)
-            panel.orderFrontRegardless()
+            if let view = panel.contentView as? DesktopGuideView {
+                view.frame = CGRect(origin: .zero, size: screen.frame.size)
+                view.topInset = screen.frame.maxY - screen.visibleFrame.maxY
+                view.leftInset = screen.visibleFrame.minX - screen.frame.minX
+                view.needsDisplay = true
+            }
+            if !panel.isVisible { panel.orderFrontRegardless() }
+        }
+        guard !guidesVisible else { return }
+        guidesVisible = true; guideGeneration += 1
+        guides.forEach { $0.contentView?.displayIfNeeded() }
+        fadeGuides(to: 1)
+    }
+    private func fadeGuides(to target: CGFloat) {
+        guideFade?.cancel()
+        let generation = guideGeneration
+        let panels = guides
+        let starts = panels.map(\.alphaValue)
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.32
+        guideFade = Task { @MainActor [weak self] in
+            let start = Date()
+            while let self, !Task.isCancelled, self.guideGeneration == generation {
+                let fraction = duration == 0 ? 1 : min(1, Date().timeIntervalSince(start) / duration)
+                let progress = CGFloat(fraction * fraction * (3 - 2 * fraction))
+                for (panel, alpha) in zip(panels, starts) { panel.alphaValue = alpha + (target - alpha) * progress }
+                if fraction >= 1 {
+                    if target == 0 { panels.forEach { $0.orderOut(nil) } }
+                    self.guideFade = nil
+                    return
+                }
+                do { try await Task.sleep(nanoseconds: 16_666_667) } catch { return }
+            }
         }
     }
     func reconcile() {
@@ -353,6 +438,24 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         // Equality guard prevents a persistence/reconcile feedback loop.
         if preferences != store.preferences { store.preferences = preferences }
     }
+    func placeFromGallery(_ payload: GalleryWidgetPayload, at point: CGPoint) {
+        let size = payload.size.dimensions
+        let frame = CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height)
+        var requests = [PlacementRequest(kind: payload.kind, size: size, preferred: frame)]
+        for item in store.preferences.widgets where item.enabled && item.kind != payload.kind {
+            if let existing = targets[item.kind] { requests.append(PlacementRequest(kind: item.kind, size: item.size.dimensions, preferred: existing)) }
+        }
+        let frames = DesktopGrid.arrange(requests, screens: NSScreen.screens.map(\.visibleFrame))
+        guard frames.count == requests.count else { store.layoutMessage = "Sem espaço. Escolha um tamanho menor ou remova um widget."; return }
+        var value = store.preferences
+        for i in value.widgets.indices {
+            let kind = value.widgets[i].kind
+            if kind == payload.kind { value.widgets[i].enabled = true; value.widgets[i].size = payload.size; value.widgets[i].variant = payload.variant }
+            if let frame = frames[kind] { value.widgets[i].x = frame.minX; value.widgets[i].y = frame.maxY }
+        }
+        store.preferences = value
+        reconcile()
+    }
     /// Reflow only when the dragged widget enters a different grid cell.
     /// Preferences are committed once at release, not on every pointer event.
     private func previewPush() {
@@ -382,6 +485,6 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         }
     }
     private func face(_ item: WidgetItem) -> WidgetFace {
-        WidgetFace(kind: item.kind, size: item.size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda)
+        WidgetFace(desktopInactive: !desktopActive, kind: item.kind, size: item.size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda)
     }
 }

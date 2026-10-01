@@ -33,6 +33,8 @@ final class DeviceService: ObservableObject {
     }
     @Published private(set) var outputName = "Saída de áudio"
     @Published private(set) var macBattery: Int?
+    @Published private(set) var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    private var lowPowerObserver: NSObjectProtocol?
     @Published private(set) var charging = false
     @Published private(set) var pluggedIn = false
     @Published private(set) var powerStatus = "Consultando bateria"
@@ -40,9 +42,12 @@ final class DeviceService: ObservableObject {
     private var wakeObserver: NSObjectProtocol?
     private var timer: Timer?
     private var paused = false
-    func setPaused(_ value: Bool) { paused = value; if !value { refresh() } }
+    func setPaused(_ value: Bool) { guard paused != value else { return }; paused = value; if !value { refresh() } }
     init() {
         refresh()
+        lowPowerObserver = NotificationCenter.default.addObserver(forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main) { [weak self] _ in
+            self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+        }
         if let source = IOPSNotificationCreateRunLoopSource({ context in
             guard let context else { return }
             let service = Unmanaged<DeviceService>.fromOpaque(context).takeUnretainedValue()
@@ -56,6 +61,7 @@ final class DeviceService: ObservableObject {
     }
     deinit {
         timer?.invalidate()
+        if let lowPowerObserver { NotificationCenter.default.removeObserver(lowPowerObserver) }
         if let powerSource { CFRunLoopRemoveSource(CFRunLoopGetMain(), powerSource, .commonModes) }
         if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
     }
