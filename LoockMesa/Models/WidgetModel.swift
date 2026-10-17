@@ -39,7 +39,7 @@ enum WidgetAppearance: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 struct DeskPreferences: Codable, Equatable {
-    var widgets = [WidgetItem(kind: .headphones, size: .medium), WidgetItem(kind: .weather, size: .medium), WidgetItem(kind: .clock), WidgetItem(kind: .calendar), WidgetItem(kind: .reminders, enabled: false), WidgetItem(kind: .notes, enabled: false), WidgetItem(kind: .music, size: .medium, enabled: false), WidgetItem(kind: .musicLyrics, size: .medium, enabled: false)]
+    var widgets = [WidgetItem(kind: .headphones, size: .medium), WidgetItem(kind: .weather, size: .medium), WidgetItem(kind: .clock), WidgetItem(kind: .calendar), WidgetItem(kind: .reminders, enabled: false), WidgetItem(kind: .notes, enabled: false), WidgetItem(kind: .music, size: .medium, enabled: false), WidgetItem(kind: .musicLyrics, size: .medium, enabled: false), WidgetItem(kind: .macBattery, enabled: false)]
     var surface: WidgetSurface? = nil
     var individualSurface: [String: WidgetSurface]? = nil
     var individualAppearance: [String: WidgetAppearance]? = nil
