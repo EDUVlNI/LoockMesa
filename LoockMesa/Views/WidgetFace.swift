@@ -228,7 +228,7 @@ struct WeatherWidget: View {
         VStack(alignment: .leading, spacing: 0) {
             if let data = service.snapshot {
                 if variant != "standard" && ["daily", "details", "sun"].contains(variant) {
-                    WeatherVariantContent(size: size, city: city, data: data, variant: variant)
+                    WeatherVariantContent(size: size, city: city, data: data, variant: variant, light: light)
                     Spacer(minLength: 2)
                     sourceLabel.padding(.top, 4)
                 } else if size == .small {
@@ -306,6 +306,7 @@ struct WeatherVariantContent: View {
     let city: String
     let data: WeatherSnapshot
     let variant: String
+    var light = false
     private var small: Bool { size == .small }
     private var large: Bool { size == .large }
     var body: some View {
@@ -353,7 +354,6 @@ struct WeatherVariantContent: View {
                         if large { TemperatureRange(low: day.low, high: day.high, minimum: data.days.map(\.low).min() ?? day.low, maximum: data.days.map(\.high).max() ?? day.high) }
                         Text("\(day.high)°").frame(width: small ? 22 : 28)
                     }.font(.system(size: small ? 10 : 13, weight: .medium))
-                    if large { Spacer(minLength: 0) }
                 }
             }
         }
@@ -402,7 +402,7 @@ struct WeatherVariantContent: View {
                                     Label(metrics[i].0.uppercased(), systemImage: metrics[i].2).font(.system(size: 10, weight: .semibold)).opacity(0.7)
                                     Text(metrics[i].1).font(.system(size: 19, weight: .medium)).lineLimit(1).minimumScaleFactor(0.65)
                                 }.frame(maxWidth: .infinity, minHeight: 71, alignment: .leading).padding(12)
-                                    .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .background((light ? Color.black : .white).opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             }
                         }
                     } else { metricRows }
@@ -423,11 +423,11 @@ struct WeatherVariantContent: View {
                             Text(data.localTime(event.date)).font(.system(size: 38, weight: .light)).monospacedDigit()
                             Text(city).font(.system(size: 12)).opacity(0.7)
                         }
-                        SunPath(progress: progress).frame(height: 68)
+                        SunPath(progress: progress, light: light).frame(height: 68)
                     }
                 } else {
                     Text(data.localTime(event.date)).font(.system(size: small ? 34 : 55, weight: .light)).monospacedDigit()
-                    SunPath(progress: progress).frame(maxHeight: .infinity)
+                    SunPath(progress: progress, light: light).frame(maxHeight: .infinity)
                 }
                 HStack {
                     Text("Nascer " + data.localTime(data.sunrise))
@@ -441,6 +441,8 @@ struct WeatherVariantContent: View {
 }
 private struct SunPath: View {
     let progress: Double?
+    var light = false
+    private var ink: Color { light ? .black : .white }
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width, height = proxy.size.height
@@ -451,12 +453,12 @@ private struct SunPath: View {
                         let point = CGPoint(x: width * t, y: height * (0.77 - 0.65 * sin(t * .pi)))
                         if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
                     }
-                }.stroke(.white.opacity(0.25), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                }.stroke(ink.opacity(0.25), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                 Path { path in path.move(to: CGPoint(x: 0, y: height * 0.77)); path.addLine(to: CGPoint(x: width, y: height * 0.77)) }
-                    .stroke(.white.opacity(0.35), lineWidth: 1)
+                    .stroke(ink.opacity(0.35), lineWidth: 1)
                 if let progress, progress > 0 && progress < 1 {
-                    Circle().fill(.white).frame(width: 10, height: 10)
-                        .shadow(color: .white.opacity(0.7), radius: 5)
+                    Circle().fill(ink).frame(width: 10, height: 10)
+                        .shadow(color: ink.opacity(0.7), radius: 5)
                         .position(x: width * progress, y: height * (0.77 - 0.65 * sin(progress * .pi)))
                 }
             }
