@@ -203,18 +203,6 @@ import SwiftUI
         precondition(commands == [2], "Play/pause must target media service once")
         musicHost.editing = true; musicHost.layoutSubtreeIfNeeded()
         precondition(playButton.isHidden && musicHost.hitTest(controlPoint) === musicHost, "Editing preserves dragging instead of playback")
-        let lyricsHost = WidgetHost(rootView: WidgetFace(music: music, kind: .musicLyrics, size: .medium,
-            store: source.store, devices: source.devices, weather: source.weather, bluetooth: source.bluetooth, agenda: source.agenda))
-        window.contentView = lyricsHost
-        lyricsHost.frame = CGRect(x: 0, y: 0, width: 344, height: 164)
-        lyricsHost.observeLyricsControls(); lyricsHost.layoutSubtreeIfNeeded()
-        let bubble = lyricsHost.subviews.compactMap { $0 as? NSButton }.first { $0.isTransparent && $0.tag == 0 }!
-        let bubblePoint = lyricsHost.convert(NSPoint(x: bubble.frame.midX, y: bubble.frame.midY), to: lyricsHost.superview)
-        precondition(!bubble.isEnabled && lyricsHost.hitTest(bubblePoint) === bubble, "Missing lyrics must disable the bubble without falling through to open the player")
-        bubble.performClick(nil)
-        precondition(!LyricsService.shared.showingLyrics)
-        lyricsHost.editing = true; lyricsHost.layoutSubtreeIfNeeded()
-        precondition(bubble.isHidden && lyricsHost.hitTest(bubblePoint) === lyricsHost)
         music.configure(provider: .deezer, enabled: true)
         precondition(music.track.title.isEmpty, "Selected source must filter unrelated playback")
         activePID = 99
@@ -247,37 +235,6 @@ import SwiftUI
         stable.clearSpotifyHistory(); precondition(stable.spotifyHistory.albums.isEmpty)
         stable.stop()
         print("PASS: pause/resume keeps artwork identity, new tracks clear stale art, Spotify recents populate")
-        var seekTargets: [Double] = []
-        var seekPID: Int32 = 42
-        var seekTitle = "Seek fixture"
-        let seeking = MusicService(api: MediaSourceAPI(
-            pid: { _, done in done(seekPID) },
-            info: { _, done in done(["kMRMediaRemoteNowPlayingInfoTitle": seekTitle,
-                "kMRMediaRemoteNowPlayingInfoDuration": 200,
-                "kMRMediaRemoteNowPlayingInfoElapsedTime": 20] as CFDictionary) },
-            playing: { _, done in done(false) },
-            seek: { seekTargets.append($0) },
-            bundle: { $0 == 42 ? "com.spotify.client" : "com.apple.Safari" }))
-        seeking.configure(provider: .automatic, enabled: true)
-        precondition(seeking.canSeek)
-        seeking.beginScrub(fraction: 0.4)
-        seeking.updateScrub(fraction: 0.6)
-        precondition(seekTargets.isEmpty && seeking.scrubPosition == 120, "Dragging previews locally without spamming the player")
-        seeking.finishScrub()
-        precondition(seekTargets == [120] && seeking.position.elapsed == 120 && seeking.position.rate == 0)
-        seeking.beginScrub(fraction: 2); seeking.finishScrub()
-        precondition(seekTargets.last == 200)
-        seeking.beginScrub(fraction: 0.2)
-        seekTitle = "Other track"; seeking.refreshAll(); seeking.finishScrub()
-        precondition(seekTargets.count == 2 && seeking.scrubPosition == nil, "A drag from a previous track must not seek the new track")
-        seekPID = 99; seeking.seek(to: 70)
-        precondition(seekTargets.count == 2, "Verify source before seeking")
-        seeking.stop()
-        for size in WidgetSize.allCases {
-            let geometry = LyricsLayout(size: size)
-            precondition(!geometry.progress.intersects(geometry.control(1)))
-        }
-        print("PASS: scrub clamping, one command on release, pause preservation, track/source change protection")
         print("PASS: music source filtering, native playback hit targets, edit drag, stale callback cancellation")
         print("PASS: mouse-up persistence, final coordinates, duplicate release, locked and settling guards")
     }

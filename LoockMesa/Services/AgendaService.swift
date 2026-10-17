@@ -117,7 +117,7 @@ func openWidgetApp(_ kind: WidgetKind) {
     let identifier: String
     switch kind {
     case .screenTime: NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Screen-Time-Settings.extension")!); return
-    case .music, .musicLyrics: MusicService.shared.openSource(); return
+    case .music: MusicService.shared.openSource(); return
     case .calendar: identifier = "com.apple.iCal"
     case .reminders: identifier = "com.apple.reminders"
     case .notes: identifier = "com.apple.Notes"

@@ -14,11 +14,6 @@ struct MusicWidget: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             HarmonizedCardBackground(light: light, frosted: forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted))
-            if (appearance ?? store.preferences.appearanceStyle(.music)) == .original {
-                AlbumColorGradient(media: media)
-                    .opacity((forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted)) ? 0.62 : 0.94)
-                    .allowsHitTesting(false)
-            }
             if size != .small {
                 Rectangle().fill(Color.black.opacity(light ? 0.035 : 0.09))
                     .frame(height: size.dimensions.height - layout.dividerY).offset(y: layout.dividerY)
@@ -37,8 +32,8 @@ struct MusicWidget: View {
                 Button { media.togglePlayPause() } label: {
                     ZStack {
                         Circle().fill(light ? Color.black.opacity(0.85) : .white)
-                        PlaybackMorphIcon(playing: media.isPlaying)
-                            .frame(width: layout.play.width * 0.39, height: layout.play.width * 0.43)
+                        Image(systemName: media.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: layout.play.width * 0.39, weight: .bold))
                             .foregroundStyle(light ? .white : Color(white: 0.25))
                     }
                 }.buttonStyle(.plain).disabled(media.track.pid == 0)
@@ -120,17 +115,18 @@ struct MusicArtwork: View {
                 if let image { Image(nsImage: image).resizable().scaledToFill() }
                 else { Image(systemName: "music.note").font(.system(size: proxy.size.width * 0.35)).opacity(0.5) }
             }.frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                .blur(radius: media.isPlaying || media.track.title.isEmpty ? 0 : 3)
+                .animation(.easeInOut(duration: reduceMotion ? 0 : 0.24), value: media.isPlaying)
                 .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.65)
                 .scaleEffect(scale)
         }
-        .task(id: media.track.identity + (reduceMotion ? "|still" : "|motion")) {
+        .task(id: media.track.identity) {
             let next = media.track.identity
             let generation = UUID(); flipGeneration = generation
             defer { if flipGeneration == generation { flipping = false } }
             guard identity != nil, identity != next, !reduceMotion, !media.songTitle.isEmpty else {
                 reset(); identity = next; image = media.albumArtwork; return
             }
-            reset() // Interrupted flips must start from a visible face.
             identity = next; flipping = true
             withAnimation(.easeIn(duration: 0.18)) { angle = 90; scale = 0.82 }
             do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
@@ -211,77 +207,5 @@ struct MusicOptions: View {
                 update(index) { $0.artwork = data }; imageError = ""
             } catch { imageError = "Não foi possível abrir essa imagem." }
         }
-    }
-}
-
-/// A stable composition per track: only a new track picks new positions.
-/// Artwork arriving later changes the palette without making the background jump.
-struct AlbumColorGradient: View {
-    @ObservedObject var media: MusicService
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var colors: [Color] = [.init(red: 0.24, green: 0.17, blue: 0.32),
-        .init(red: 0.13, green: 0.29, blue: 0.26), .init(red: 0.25, green: 0.23, blue: 0.36)]
-    @State private var centers: [UnitPoint] = [.topLeading, .bottomTrailing, .topTrailing]
-    @State private var lastIdentity: String?
-    @State private var sampledArtwork: NSImage?
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                colors[0]
-                ForEach(0..<3, id: \.self) { index in
-                    RadialGradient(colors: [colors[index], colors[index].opacity(0)],
-                        center: centers[index], startRadius: 0,
-                        endRadius: max(geometry.size.width, geometry.size.height) * 0.95)
-                }
-                Color.black.opacity(0.12)
-            }
-        }
-        .clipped()
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: colors)
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: centers)
-        .onReceive(media.$track) { track in
-            if lastIdentity != track.identity {
-                lastIdentity = track.identity
-                // Disjoint quadrants keep complementary colors visible instead of overlapping.
-                let quadrants: [(CGFloat, CGFloat)] = [(0, 0), (0.65, 0), (0, 0.65), (0.65, 0.65)]
-                centers = quadrants.shuffled().prefix(3).map { point in
-                    UnitPoint(x: point.0 + CGFloat.random(in: 0...0.35),
-                              y: point.1 + CGFloat.random(in: 0...0.35))
-                }
-            }
-            guard sampledArtwork !== track.artwork else { return }
-            sampledArtwork = track.artwork
-            colors = Self.palette(from: track.artwork)
-        }
-        .accessibilityHidden(true)
-    }
-    private static func palette(from image: NSImage?) -> [Color] {
-        var hue: CGFloat = 0.74
-        var saturation: CGFloat = 0.48
-        if let image,
-           let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4,
-               bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-               colorSpaceName: .deviceRGB, bytesPerRow: 16, bitsPerPixel: 32),
-           let context = NSGraphicsContext(bitmapImageRep: bitmap) {
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            context.imageInterpolation = .high
-            image.draw(in: CGRect(x: 0, y: 0, width: 4, height: 4))
-            NSGraphicsContext.restoreGraphicsState()
-            var bestScore: CGFloat = -1
-            for y in 0..<4 {
-                for x in 0..<4 {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                    let score = color.saturationComponent * color.brightnessComponent * color.alphaComponent
-                    if score > bestScore && color.saturationComponent > 0.08 {
-                        bestScore = score; hue = color.hueComponent; saturation = color.saturationComponent
-                    }
-                }
-            }
-        }
-        let sat = min(0.70, max(0.32, saturation))
-        return [Color(hue: Double(hue), saturation: Double(sat), brightness: 0.40),
-                Color(hue: Double((hue + 0.5).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.8), brightness: 0.35),
-                Color(hue: Double((hue + 0.08).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.75), brightness: 0.49)]
     }
 }

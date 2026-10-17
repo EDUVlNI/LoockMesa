@@ -3,31 +3,6 @@ import Foundation
 @main
 struct Checks {
     static func main() throws {
-        let lyric = LyricsDocument.parse(synced: "[offset:200]\n[00:01.00][00:03.500]Primeira\n[00:05.00]\n[00:07.00]Última", plain: nil)
-        assert(lyric.available && lyric.lines.count == 4)
-        assert(lyric.activeIndex(at: 0.7) == nil)
-        assert(lyric.activeIndex(at: 0.8) == 0 && lyric.activeIndex(at: 3.4) == 1)
-        assert(lyric.lines[2].text.isEmpty && lyric.activeIndex(at: 5) == 2)
-        assert(!LyricsDocument.parse(synced: "[ar:Artist]\ninvalid", plain: "  ").available)
-        assert(LyricsDocument.parse(synced: nil, plain: "Texto sem tempo").available)
-        let query = LyricsQuery(title: "A & B?", artist: "Ação", album: "Live / 2", duration: 180)
-        let params = URLComponents(url: query.url!, resolvingAgainstBaseURL: false)!.queryItems!
-        assert(params.first { $0.name == "track_name" }?.value == "A & B?")
-        assert(LyricsQuery(title: "X", artist: "Y", album: "", duration: 0).url == nil)
-        let epoch = Date(timeIntervalSince1970: 100)
-        let position = PlaybackPosition(elapsed: 12, duration: 20, sampledAt: epoch, rate: 1, known: true)
-        assert(position.at(epoch.addingTimeInterval(3)) == 15)
-        assert(position.at(epoch.addingTimeInterval(50)) == 20)
-        var pausedPosition = position; pausedPosition.rate = 0
-        assert(pausedPosition.at(epoch.addingTimeInterval(3)) == 12)
-        var oldLayout = DeskPreferences()
-        oldLayout.widgets.removeAll { $0.kind == .musicLyrics }
-        let oldMusic = oldLayout.widgets.first { $0.kind == .music }!
-        oldLayout.normalize()
-        assert(oldLayout.widgets.first { $0.kind == .music } == oldMusic)
-        assert(oldLayout.widgets.first { $0.kind == .musicLyrics }?.enabled == false)
-        assert(oldLayout.widgets.first { $0.kind == .musicLyrics }?.size == .medium)
-        print("PASS: lyric timing, instrumental gaps, plain fallback, query encoding, playback clock and independent widget migration")
         let suite = "LoockMesa.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
