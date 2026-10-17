@@ -1,4 +1,4 @@
-# LoockMesa 0.31.0 — implementação, ainda sem build macOS
+# LoockMesa 0.31.0 — validação macOS e empacotamento
 
 ## Alterações
 
@@ -12,9 +12,9 @@
 
 Comparação sintática de todos os fontes Swift com o commit anterior usando tree-sitter: sem novos erros. Info.plist válido. Script validado com `bash -n`; `git diff --check` sem erros. A revisão não substitui compilação/verificação de tipos.
 
-## Bloqueio de entrega
+## Compilação remota
 
-Ambiente atual Linux, sem SDK macOS/Xcode. O script interrompe corretamente nesse ambiente. As tentativas de escrita no GitHub nesta sessão retornaram 403 (Resource not accessible by integration), impedindo enviar a branch e iniciar o build macOS. Não foi gerado nem executado um `.app` desta versão. O comportamento visual e a correção completa do bug de galeria ainda exigem teste num Mac.
+A instalação do conector foi corrigida e a atualização foi enviada para o PR #1. O run 39063150390 compilou Debug e Release para x86_64/macOS 13 com Xcode 15.4 e passou os três conjuntos de testes (modelos, interação desktop, renderização de relógios) em macOS 14. O empacotamento encontrou um erro de ordem de argumentos no lipo, corrigido no script. O workflow valida arquitetura, assinatura ad hoc e publica o ZIP somente após sucesso.
 
 ## Validação necessária antes de considerar versão final
 

@@ -12,7 +12,7 @@ xcodebuild -project LoockMesa.xcodeproj -scheme LoockMesa -configuration Release
   MACOSX_DEPLOYMENT_TARGET=13.0 CODE_SIGNING_ALLOWED=NO build
 app_path="$build_dir/Build/Products/Release/LoockMesa.app"
 test -x "$app_path/Contents/MacOS/LoockMesa"
-/usr/bin/lipo -verify_arch x86_64 "$app_path/Contents/MacOS/LoockMesa"
+/usr/bin/lipo "$app_path/Contents/MacOS/LoockMesa" -verify_arch x86_64
 /usr/bin/codesign --force --sign - --entitlements LoockMesa/LoockMesa.entitlements "$app_path"
 /usr/bin/codesign --verify --strict "$app_path"
 mkdir -p dist
