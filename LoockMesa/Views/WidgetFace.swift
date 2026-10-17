@@ -26,6 +26,7 @@ struct WidgetFace: View {
     var body: some View {
         Group {
             switch kind {
+            case .musicLyrics: LyricsWidget(size: size, media: music, appearance: appearance, frosted: frost)
             case .music: MusicWidget(size: size, store: store, media: music, appearance: appearance, forcedFrosted: frost)
             case .headphones: HeadphonesWidget(size: size, demo: store.preferences.demoHeadphones, bluetooth: bluetooth, devices: devices, light: appearance == .light, frosted: frost, monochrome: false)
             case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather, appearance: appearance, frosted: frost)

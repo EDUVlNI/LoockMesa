@@ -1,12 +1,12 @@
 import SwiftUI
 
 enum WidgetKind: String, CaseIterable, Codable, Identifiable {
-    case headphones, macBattery, weather, clock, calendar, reminders, notes, music, screenTime
+    case headphones, macBattery, weather, clock, calendar, reminders, notes, music, musicLyrics, screenTime
     // screenTime remains decodable only to migrate older saved layouts.
-    static var allCases: [WidgetKind] { [.headphones, .weather, .clock, .calendar, .reminders, .notes, .music] }
+    static var allCases: [WidgetKind] { [.headphones, .weather, .clock, .calendar, .reminders, .notes, .music, .musicLyrics] }
     var id: String { rawValue }
-    var title: String { switch self { case .screenTime: return "Tempo de Uso"; case .music: return "Música"; case .headphones: return "Baterias"; case .weather: return "Clima"; case .clock: return "Relógio"; case .macBattery: return "Bateria do Mac"; case .reminders: return "Lembretes"; case .notes: return "Notas"; case .calendar: return "Calendário" } }
-    var symbol: String { switch self { case .screenTime: return "hourglass"; case .music: return "music.note"; case .headphones: return "headphones"; case .weather: return "cloud.sun.fill"; case .clock: return "clock"; case .macBattery: return "laptopcomputer"; case .reminders: return "list.bullet"; case .notes: return "note.text"; case .calendar: return "calendar" } }
+    var title: String { switch self { case .screenTime: return "Tempo de Uso"; case .musicLyrics: return "Música e Letras"; case .music: return "Música"; case .headphones: return "Baterias"; case .weather: return "Clima"; case .clock: return "Relógio"; case .macBattery: return "Bateria do Mac"; case .reminders: return "Lembretes"; case .notes: return "Notas"; case .calendar: return "Calendário" } }
+    var symbol: String { switch self { case .screenTime: return "hourglass"; case .musicLyrics: return "text.bubble"; case .music: return "music.note"; case .headphones: return "headphones"; case .weather: return "cloud.sun.fill"; case .clock: return "clock"; case .macBattery: return "laptopcomputer"; case .reminders: return "list.bullet"; case .notes: return "note.text"; case .calendar: return "calendar" } }
 }
 enum WidgetSize: String, CaseIterable, Codable, Identifiable {
     case small = "P", medium = "M", large = "G"
@@ -39,7 +39,7 @@ enum WidgetAppearance: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 struct DeskPreferences: Codable, Equatable {
-    var widgets = [WidgetItem(kind: .headphones, size: .medium), WidgetItem(kind: .weather, size: .medium), WidgetItem(kind: .clock), WidgetItem(kind: .calendar), WidgetItem(kind: .reminders, enabled: false), WidgetItem(kind: .notes, enabled: false), WidgetItem(kind: .music, size: .medium, enabled: false)]
+    var widgets = [WidgetItem(kind: .headphones, size: .medium), WidgetItem(kind: .weather, size: .medium), WidgetItem(kind: .clock), WidgetItem(kind: .calendar), WidgetItem(kind: .reminders, enabled: false), WidgetItem(kind: .notes, enabled: false), WidgetItem(kind: .music, size: .medium, enabled: false), WidgetItem(kind: .musicLyrics, size: .medium, enabled: false)]
     var surface: WidgetSurface? = nil
     var individualSurface: [String: WidgetSurface]? = nil
     var individualAppearance: [String: WidgetAppearance]? = nil
@@ -90,7 +90,7 @@ struct DeskPreferences: Codable, Equatable {
         individualAppearance?.removeValue(forKey: WidgetKind.screenTime.rawValue)
         var seen = Set<WidgetKind>()
         widgets = widgets.filter { seen.insert($0.kind).inserted }
-        widgets += WidgetKind.allCases.filter { !seen.contains($0) }.map { WidgetItem(kind: $0, enabled: $0 != .reminders && $0 != .notes && $0 != .music && $0 != .screenTime) }
+        widgets += WidgetKind.allCases.filter { !seen.contains($0) }.map { WidgetItem(kind: $0, size: $0 == .musicLyrics ? .medium : .small, enabled: $0 != .reminders && $0 != .notes && $0 != .music && $0 != .musicLyrics && $0 != .screenTime) }
         for i in widgets.indices {
             if widgets[i].x?.isFinite == false || widgets[i].y?.isFinite == false { widgets[i].x = nil; widgets[i].y = nil }
             if widgets[i].kind == .clock && widgets[i].variant == "digital" && widgets[i].size == .large {

@@ -36,19 +36,23 @@ struct GalleryView: View {
                 }.padding(16).frame(width: 190)
                 Divider()
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 22) {
                         if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
                         else {
-                            ForEach(allWidgets ? categories : categories.filter { $0 == selected }) { kind in
+                            ForEach(allWidgets ? categories : [selected]) { kind in
                                 catalogue(kind)
                             }
-                            if categories.isEmpty { Text("Nenhum widget encontrado.").foregroundStyle(.secondary) }
+                            if allWidgets && categories.isEmpty { Text("Nenhum widget encontrado.").foregroundStyle(.secondary) }
                             if !allWidgets {
                                 DisclosureGroup("Personalizar " + selected.title) { widgetSettings.padding(.top, 16) }
                             }
                         }
                     }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
-                }.mask {
+                }
+                // Recreate the scroll container on navigation, not the shared app data.
+                // A long catalogue must not leave a short category scrolled offscreen.
+                .id(general ? "general" : allWidgets ? "all-" + search : selected.rawValue)
+                .mask {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
                         Color.black
@@ -205,13 +209,18 @@ struct GalleryView: View {
         }.buttonStyle(.plain)
     }
     private func iconColor(_ kind: WidgetKind) -> Color {
-        switch kind { case .screenTime: return .purple; case .music: return .pink; case .headphones, .macBattery: return .green; case .weather: return .blue; case .clock: return .gray; case .calendar: return .red; case .reminders: return .orange; case .notes: return .yellow }
+        switch kind { case .screenTime: return .purple; case .music, .musicLyrics: return .pink; case .headphones, .macBattery: return .green; case .weather: return .blue; case .clock: return .gray; case .calendar: return .red; case .reminders: return .orange; case .notes: return .yellow }
     }
     @ViewBuilder private var options: some View {
         switch selected {
         case .screenTime:
             Text("O Ventura não fornece ao Loock o relatório geral do Tempo de Uso. Este widget indica a indisponibilidade, sem dados fictícios.").font(.caption)
             Button("Abrir Tempo de Uso") { openWidgetApp(.screenTime) }
+        case .musicLyrics:
+            Picker("Player", selection: Binding(get: { store.preferences.musicProvider ?? .automatic }, set: { store.preferences.musicProvider = $0 })) {
+                ForEach(MusicProvider.allCases) { Text($0.title).tag($0) }
+            }
+            Text("Letras consultadas no LRCLIB pelo nome, artista, álbum e duração da faixa. Sem letra disponível, o balão fica escuro e desativado. O player escolhido é compartilhado com Música.").font(.caption).foregroundStyle(.secondary)
         case .music: MusicOptions(store: store, media: MusicService.shared)
         case .headphones:
             VStack(alignment: .leading, spacing: 9) {
