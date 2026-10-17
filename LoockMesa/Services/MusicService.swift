@@ -20,6 +20,7 @@ struct MediaSourceAPI {
     var info: ((DispatchQueue, @escaping (CFDictionary?) -> Void) -> Void)?
     var playing: ((DispatchQueue, @escaping (Bool) -> Void) -> Void)?
     var command: ((UInt32, CFDictionary?) -> Bool)?
+    var seek: ((Double) -> Void)?
     var bundle: (Int32) -> String? = { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
 }
 
@@ -37,6 +38,42 @@ final class MusicService: ObservableObject {
         var identity: String { "\(bundle)|\(title)|\(artist)|\(album)" }
     }
     @Published private(set) var track = Track()
+    @Published private(set) var position = PlaybackPosition()
+    @Published private(set) var scrubPosition: TimeInterval?
+    @Published private(set) var controlFeedback = MusicControlFeedback()
+    private var scrubIdentity: String?
+    private var setElapsedTime: ((Double) -> Void)?
+    var canSeek: Bool { enabled && !paused && track.pid > 0 && position.known && position.duration > 0 && setElapsedTime != nil }
+    func beginScrub(fraction: Double) {
+        guard canSeek else { return }
+        scrubIdentity = track.identity
+        updateScrub(fraction: fraction)
+    }
+    func updateScrub(fraction: Double) {
+        guard canSeek, scrubIdentity == track.identity, fraction.isFinite else { cancelScrub(); return }
+        scrubPosition = min(1, max(0, fraction)) * position.duration
+    }
+    func cancelScrub() { scrubIdentity = nil; scrubPosition = nil }
+    func finishScrub() {
+        let identity = scrubIdentity
+        let target = scrubPosition
+        cancelScrub()
+        guard identity == track.identity, let target else { return }
+        seek(to: target)
+    }
+    func seek(to time: TimeInterval) {
+        guard canSeek, time.isFinite else { return }
+        let expectedPID = track.pid, expectedIdentity = track.identity, expectedBundle = track.bundle
+        let target = min(position.duration, max(0, time))
+        getPID?(.main) { [weak self] pid in
+            guard let self, self.canSeek, pid == expectedPID, self.track.identity == expectedIdentity,
+                  self.resolveBundle(pid) == expectedBundle, self.provider.accepts(expectedBundle) else { return }
+            self.setElapsedTime?(target)
+            self.position = PlaybackPosition(elapsed: target, duration: self.position.duration, sampledAt: Date(),
+                rate: self.isPlaying ? self.position.rate : 0, known: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.refreshAll() }
+        }
+    }
     @Published private(set) var spotifyHistory = SpotifyRecentHistory()
     private let historyDefaults: UserDefaults?
     private let historyKey = "LoockMesa.spotifyRecentAlbums.v1"
@@ -108,6 +145,7 @@ final class MusicService: ObservableObject {
     private typealias PIDFunction = @convention(c) (DispatchQueue, @escaping @convention(block) (Int32) -> Void) -> Void
     private typealias InfoFunction = @convention(c) (DispatchQueue, @escaping @convention(block) (CFDictionary?) -> Void) -> Void
     private typealias PlayingFunction = @convention(c) (DispatchQueue, @escaping @convention(block) (Bool) -> Void) -> Void
+    private typealias SeekFunction = @convention(c) (Double) -> Void
     private typealias CommandFunction = @convention(c) (UInt32, CFDictionary?) -> Bool
     private var getPID: ((DispatchQueue, @escaping (Int32) -> Void) -> Void)?
     private var getInfo: ((DispatchQueue, @escaping (CFDictionary?) -> Void) -> Void)?
@@ -131,6 +169,7 @@ final class MusicService: ObservableObject {
         if let symbol = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationPID") { let function = unsafeBitCast(symbol, to: PIDFunction.self); getPID = { queue, done in function(queue) { done($0) } } }
         if let symbol = dlsym(handle, "MRMediaRemoteGetNowPlayingInfo") { let function = unsafeBitCast(symbol, to: InfoFunction.self); getInfo = { queue, done in function(queue) { done($0) } } }
         if let symbol = dlsym(handle, "MRMediaRemoteGetNowPlayingApplicationIsPlaying") { let function = unsafeBitCast(symbol, to: PlayingFunction.self); getPlaying = { queue, done in function(queue) { done($0) } } }
+        if let symbol = dlsym(handle, "MRMediaRemoteSetElapsedTime") { let function = unsafeBitCast(symbol, to: SeekFunction.self); setElapsedTime = { function($0) } }
         if let symbol = dlsym(handle, "MRMediaRemoteSendCommand") { let function = unsafeBitCast(symbol, to: CommandFunction.self); sendCommand = { function($0, $1) } }
         if let symbol = dlsym(handle, "MRMediaRemoteRegisterForNowPlayingNotifications") { register = unsafeBitCast(symbol, to: (@convention(c) (DispatchQueue) -> Void).self) }
         if let symbol = dlsym(handle, "MRMediaRemoteUnregisterForNowPlayingNotifications") { unregister = unsafeBitCast(symbol, to: (@convention(c) () -> Void).self) }
@@ -144,6 +183,7 @@ final class MusicService: ObservableObject {
         getInfo = api.info
         getPlaying = api.playing
         sendCommand = api.command
+        setElapsedTime = api.seek
         resolveBundle = api.bundle
     }
 
@@ -215,6 +255,19 @@ final class MusicService: ObservableObject {
         let artist = info["kMRMediaRemoteNowPlayingInfoArtist"] as? String ?? (sameTitle ? track.artist : "")
         let album = info["kMRMediaRemoteNowPlayingInfoAlbum"] as? String ?? (sameTitle ? track.album : "")
         let identityChanged = !sameSource || track.title != title || track.artist != artist || track.album != album
+        if identityChanged { cancelScrub() }
+        let now = Date()
+        let reportedElapsed = (info["kMRMediaRemoteNowPlayingInfoElapsedTime"] as? NSNumber)?.doubleValue
+        let reportedDuration = (info["kMRMediaRemoteNowPlayingInfoDuration"] as? NSNumber)?.doubleValue
+        let reportedRate = (info["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? NSNumber)?.doubleValue
+        let reportedDate = info["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date
+        let old = position
+        let elapsed = reportedElapsed.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        let duration = reportedDuration.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? (identityChanged ? 0 : old.duration)
+        position = PlaybackPosition(elapsed: elapsed ?? (identityChanged ? 0 : old.at(now)), duration: duration,
+            sampledAt: elapsed != nil ? (reportedDate ?? now) : now,
+            rate: playing ? (reportedRate.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 1) : 0,
+            known: elapsed != nil || (!identityChanged && old.known))
         let newData = info["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data ?? (!identityChanged ? artworkData : nil)
         let shouldPresent = identityChanged || track.playing != playing
         let image = !identityChanged && newData == artworkData ? track.artwork : newData.flatMap(Self.thumbnail)
@@ -236,6 +289,8 @@ final class MusicService: ObservableObject {
     }
 
     private func clear() {
+        cancelScrub()
+        position = PlaybackPosition()
         if track.pid != 0 || !track.title.isEmpty { track = Track(); artworkData = nil }
         status = enabled ? "Aguardando Spotify, Deezer ou Apple Music" : "Player desativado"
     }
@@ -244,6 +299,7 @@ final class MusicService: ObservableObject {
         let expected = track.pid
         guard enabled, !paused, expected > 0, Date().timeIntervalSince(lastCommand) > 0.2 else { return }
         lastCommand = Date()
+        controlFeedback = MusicControlFeedback(command: command)
         let expectedBundle = track.bundle
         getPID?(.main) { [weak self] pid in
             guard let self, self.enabled, pid == expected, self.track.pid == expected,

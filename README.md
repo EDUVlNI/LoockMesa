@@ -101,3 +101,9 @@ Os testes cobrem persistência, migração, grade, baterias, filtragem de player
 Interface inspirada nas referências de widgets fornecidas durante o desenvolvimento. SF Symbols e ícones dos aplicativos instalados são utilizados em tempo de execução. Clima: [Open-Meteo](https://open-meteo.com/).
 
 Projeto independente, sem afiliação com Apple, Spotify ou Deezer. A prévia utiliza capas e faixas demonstrativas.
+
+## Música e Letras (0.30)
+
+Uma categoria adicional na galeria, que pode coexistir com Música. O balão alterna entre capa e letras e fica escuro e desativado quando não há letra. Letras: [LRCLIB](https://lrclib.net/). A busca envia título, artista, álbum e duração ao serviço somente quando este widget está ativado. Resultados ficam em memória durante a sessão; não há login adicional.
+
+A sincronização depende da posição informada pelo player. Sem tempos, a letra pode ser lida com rolagem manual. A barra aceita clique e arrasto; a posição é enviada ao player ao soltar. A disponibilidade depende do suporte do player ao MediaRemote. Os controles disponíveis são anterior, reproduzir/pausar e próxima; aleatório e repetição não são anunciados sem suporte verificado do player.

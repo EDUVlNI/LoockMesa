@@ -86,3 +86,9 @@ struct SpotifyRecentHistory: Codable, Equatable {
         albums = Array(albums.prefix(4))
     }
 }
+
+/// A new identity allows repeated clicks on the same control to restart its short feedback.
+struct MusicControlFeedback: Equatable {
+    var command: UInt32 = 0
+    var id = UUID()
+}

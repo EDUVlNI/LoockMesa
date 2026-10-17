@@ -19,6 +19,48 @@ private final class MenuAction: NSObject {
 private final class EditRemoveButton: NSButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
+/// Transparent native hit surface; dragging the timeline never moves the desktop panel.
+private final class MusicScrubView: NSView {
+    var media: MusicService?
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { media?.cancelScrub() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private func fraction(_ event: NSEvent) -> Double {
+        guard bounds.width > 0 else { return 0 }
+        return Double(convert(event.locationInWindow, from: nil).x / bounds.width)
+    }
+    override func mouseDown(with event: NSEvent) {
+        guard let media, media.canSeek else { return }
+        window?.makeFirstResponder(self)
+        media.beginScrub(fraction: fraction(event))
+    }
+    override func mouseDragged(with event: NSEvent) { media?.updateScrub(fraction: fraction(event)) }
+    override func mouseUp(with event: NSEvent) {
+        media?.updateScrub(fraction: fraction(event)); media?.finishScrub()
+    }
+    override func keyDown(with event: NSEvent) {
+        guard let media else { return }
+        if event.keyCode == 53 { media.cancelScrub(); return }
+        if event.keyCode == 123 || event.keyCode == 124 {
+            media.seek(to: media.position.at(Date()) + (event.keyCode == 123 ? -5 : 5)); return
+        }
+        super.keyDown(with: event)
+    }
+    override func accessibilityValue() -> Any? { media.map { $0.position.at(Date()) } }
+    override func accessibilityMinValue() -> Any? { 0 }
+    override func accessibilityMaxValue() -> Any? { media?.position.duration ?? 0 }
+    override func accessibilityPerformIncrement() -> Bool {
+        guard let media, media.canSeek else { return false }
+        media.seek(to: media.position.at(Date()) + 5); return true
+    }
+    override func accessibilityPerformDecrement() -> Bool {
+        guard let media, media.canSeek else { return false }
+        media.seek(to: media.position.at(Date()) - 5); return true
+    }
+}
 final class WidgetHost: NSHostingView<WidgetFace> {
     var dragStarted: (() -> Void)?
     var dragMoved: (() -> Void)?
@@ -36,6 +78,37 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         else if sender.tag == 1 { rootView.music.openSource() }
         else {
             rootView.music.openLowerSlot(sender.tag - 2, preferences: rootView.store.preferences)
+        }
+    }
+    private lazy var lyricsButtons: [NSButton] = (0..<4).map { index in
+        let button = EditRemoveButton(title: "", target: self, action: #selector(lyricsControl(_:)))
+        button.tag = index; button.isTransparent = true; button.isBordered = false
+        button.setAccessibilityLabel(["Mostrar ou ocultar letras", "Faixa anterior", "Reproduzir ou pausar", "Próxima faixa"][index])
+        addSubview(button)
+        return button
+    }
+    private lazy var scrubView: MusicScrubView = {
+        let view = MusicScrubView(frame: .zero)
+        view.media = rootView.music
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.slider)
+        view.setAccessibilityLabel("Posição da música")
+        addSubview(view)
+        return view
+    }()
+    private var lyricSubscriptions = Set<AnyCancellable>()
+    func observeLyricsControls() {
+        guard rootView.kind == .musicLyrics, lyricSubscriptions.isEmpty else { return }
+        LyricsService.shared.$document.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
+        rootView.music.$track.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
+    }
+    @objc private func lyricsControl(_ sender: NSButton) {
+        guard rootView.kind == .musicLyrics, !editing else { return }
+        switch sender.tag {
+        case 0: LyricsService.shared.toggle()
+        case 1: rootView.music.previousTrack()
+        case 2: rootView.music.togglePlayPause()
+        default: rootView.music.nextTrack()
         }
     }
     private var didDrag = false
@@ -89,6 +162,21 @@ final class WidgetHost: NSHostingView<WidgetFace> {
             button.frame = rect
         }
         }
+        if rootView.kind == .musicLyrics {
+            let geometry = LyricsLayout(size: rootView.size)
+            scrubView.isHidden = editing
+            if editing { rootView.music.cancelScrub() }
+            var progressRect = geometry.progress
+            if !isFlipped { progressRect.origin.y = bounds.height - progressRect.maxY }
+            scrubView.frame = progressRect
+            for (index, button) in lyricsButtons.enumerated() {
+                button.isHidden = editing
+                button.isEnabled = index == 0 ? LyricsService.shared.document.available : rootView.music.track.pid > 0
+                var rect = index == 0 ? geometry.bubble : geometry.control(index - 1)
+                if !isFlipped { rect.origin.y = bounds.height - rect.maxY }
+                button.frame = rect
+            }
+        }
         removeButton.frame = CGRect(x: 0, y: isFlipped ? 0 : bounds.height - 20, width: 20, height: 20)
     }
     var settling = false
@@ -105,6 +193,14 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         if !removeButton.isHidden && removeButton.frame.contains(local) { return removeButton }
         if rootView.kind == .music && !editing,
            let control = musicButtons.first(where: { !$0.isHidden && $0.frame.contains(local) }) { return control }
+        if rootView.kind == .musicLyrics && !editing {
+            if scrubView.frame.contains(local) { return scrubView }
+            // Return the disabled native button too: clicks must not fall through and open the player.
+            if let control = lyricsButtons.first(where: { !$0.isHidden && $0.frame.contains(local) }) { return control }
+            if LyricsService.shared.showingLyrics && (LyricsService.shared.document.lines.isEmpty || !rootView.music.position.known) {
+                return super.hitTest(point) // Unsynced lyrics support normal scrolling.
+            }
+        }
         // Desktop faces are read-only outside explicit music controls. Native material/SwiftUI descendants must
         // not consume the drag; only the explicit remove control is interactive.
         return bounds.contains(local) ? self : nil
@@ -320,7 +416,8 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         guard !reconciling, !dragging else { return }
         reconciling = true; defer { reconciling = false }
         MusicService.shared.collectsSpotifyCovers = store.preferences.automaticSpotifyCovers != false
-        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: isVisible && store.item(.music).enabled)
+        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: isVisible && (store.item(.music).enabled || store.item(.musicLyrics).enabled))
+        LyricsService.shared.configure(enabled: isVisible && store.item(.musicLyrics).enabled)
         weather.configure(city: store.preferences.city, live: store.preferences.liveWeather)
         updateGuides()
         guard isVisible else { panels.values.forEach { ($0.contentView as? WidgetHost)?.editing = false; $0.orderOut(nil) }; return }
@@ -378,6 +475,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
                 panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
                 panel.isExcludedFromWindowsMenu = true
                 host = WidgetHost(rootView: face(item)); panel.contentView = host
+                host.observeLyricsControls()
                 host.openApp = { openWidgetApp(item.kind) }
                 host.dragStarted = { [weak self] in
                     guard let self else { return }
