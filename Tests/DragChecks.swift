@@ -181,6 +181,28 @@ import SwiftUI
         controller.setVisible(false)
         precondition(controller.animateUnlock() == 0, "Hidden cards must remain hidden without replay")
         print("PASS: unlock reveal preserves layout, suppresses editing/hidden cards")
+        let lyricMedia = MusicService(api: MediaSourceAPI(
+            pid: { _, done in done(42) },
+            info: { _, done in done(["kMRMediaRemoteNowPlayingInfoTitle": "Test Song",
+                "kMRMediaRemoteNowPlayingInfoArtist": "Test Artist", "kMRMediaRemoteNowPlayingInfoAlbum": "Deluxe",
+                "kMRMediaRemoteNowPlayingInfoDuration": 180.0] as CFDictionary) },
+            playing: { _, done in done(true) }, bundle: { _ in "com.spotify.client" }))
+        let lyricConfig = URLSessionConfiguration.ephemeral
+        lyricConfig.protocolClasses = [LyricsFixtureProtocol.self]
+        let lyricSession = URLSession(configuration: lyricConfig)
+        lyricMedia.configure(provider: .automatic, enabled: true)
+        let lyricService = LyricsService(media: lyricMedia, session: lyricSession)
+        lyricService.configure(enabled: true)
+        let lyricDeadline = Date().addingTimeInterval(3)
+        while !lyricService.document.available && Date() < lyricDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        precondition(lyricService.document.lines.first?.text == "Test lyric",
+                     "An exact-match 404 must fall back to verified search lyrics")
+        lyricService.configure(enabled: false)
+        precondition(!lyricService.document.available && !lyricService.loading)
+        lyricMedia.stop(); lyricSession.invalidateAndCancel()
+        print("PASS: exact-match miss falls back to search and disable clears lyric state")
         var activePID: Int32 = 42
         var commands: [UInt32] = []
         let music = MusicService(api: MediaSourceAPI(
@@ -213,6 +235,18 @@ import SwiftUI
         precondition(!bubble.isEnabled && lyricsHost.hitTest(bubblePoint) === bubble, "Missing lyrics must disable the bubble without falling through to open the player")
         bubble.performClick(nil)
         precondition(!LyricsService.shared.showingLyrics)
+        let scrubSurface = lyricsHost.subviews.first { $0.accessibilityRole() == .slider }!
+        precondition(!scrubSurface.isHidden)
+        LyricsService.shared.showingLyrics = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        lyricsHost.layoutSubtreeIfNeeded()
+        let scrubPoint = lyricsHost.convert(NSPoint(x: scrubSurface.frame.midX, y: scrubSurface.frame.midY), to: lyricsHost.superview)
+        precondition(scrubSurface.isHidden && lyricsHost.hitTest(scrubPoint) !== scrubSurface,
+                     "Lyric mode must hide native seek controls as well as the SwiftUI bar")
+        LyricsService.shared.showingLyrics = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        lyricsHost.layoutSubtreeIfNeeded()
+        precondition(!scrubSurface.isHidden)
         lyricsHost.editing = true; lyricsHost.layoutSubtreeIfNeeded()
         precondition(bubble.isHidden && lyricsHost.hitTest(bubblePoint) === lyricsHost)
         music.configure(provider: .deezer, enabled: true)
@@ -281,4 +315,19 @@ import SwiftUI
         print("PASS: music source filtering, native playback hit targets, edit drag, stale callback cancellation")
         print("PASS: mouse-up persistence, final coordinates, duplicate release, locked and settling guards")
     }
+}
+
+private final class LyricsFixtureProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "lrclib.net" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let search = request.url!.path == "/api/search"
+        let response = HTTPURLResponse(url: request.url!, statusCode: search ? 200 : 404, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        let payload = search ? #"[{"trackName":"Test Song","artistName":"Test Artist","albumName":"Original","duration":181,"syncedLyrics":"[00:01.00]Test lyric"}]"# : "{}"
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(payload.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

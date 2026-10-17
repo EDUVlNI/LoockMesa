@@ -41,9 +41,11 @@ struct LyricsWidget: View {
                         }
                     }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .clipped()
-                    Color.clear.frame(height: 67)
+                    Color.clear.frame(height: lyrics.showingLyrics ? 43 : 67)
                 }.padding(.horizontal, size == .small ? 13 : 18).padding(.top, 15).padding(.bottom, 9)
-                placed(layout.progress) { progress(elapsed: elapsed) }
+                if !lyrics.showingLyrics {
+                    placed(layout.progress) { progress(elapsed: elapsed) }.transition(.opacity)
+                }
                 }
             }
             placed(layout.bubble) {
@@ -73,6 +75,10 @@ struct LyricsWidget: View {
         }.foregroundStyle(light ? Color.black : Color.white)
             .frame(width: size.dimensions.width, height: size.dimensions.height)
             .animation(animation, value: lyrics.showingLyrics)
+            .onChange(of: lyrics.showingLyrics) { showing in
+                progressHovered = false
+                if showing { media.cancelScrub() }
+            }
 
     }
     private var metadata: some View {
@@ -104,7 +110,10 @@ struct LyricsWidget: View {
                             .font(.system(size: size == .large ? 20 : size == .small ? 12 : 15, weight: .semibold))
                             .lineLimit(2).minimumScaleFactor(0.85)
                             .frame(width: geometry.size.width - 26, height: rowHeight, alignment: .leading)
+                            .scaleEffect(line.id == active ? 1 : 0.84, anchor: .leading)
                             .opacity(line.id == active ? 1 : 0.3)
+                            .shadow(color: line.id == active && !light ? Color.white.opacity(0.45) : .clear, radius: 4)
+                            .shadow(color: line.id == active && !light ? Color.white.opacity(0.16) : .clear, radius: 9)
                             .blur(radius: reduceMotion || line.id == active ? 0 : 1.0)
                             .position(x: (geometry.size.width - 26) / 2,
                                       y: geometry.size.height / 2 + CGFloat(line.id - max(0, active)) * rowHeight)
@@ -129,11 +138,7 @@ struct LyricsWidget: View {
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.18))
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.75))
                         .frame(width: proxy.size.width * fraction)
-                    Circle().fill(light ? Color.black : Color.white)
-                        .frame(width: 8, height: 8)
-                        .offset(x: min(max(0, proxy.size.width * fraction - 4), max(0, proxy.size.width - 8)))
-                        .opacity(expanded && media.canSeek ? 1 : 0)
-                }.frame(height: expanded ? 6 : 2)
+                }.frame(height: expanded ? 6 : 1)
                     .frame(height: 8)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: expanded)
             }.frame(height: 8)
@@ -214,11 +219,28 @@ struct PlaybackMorphShape: Shape {
         var path = Path()
         let t = min(1, max(0, progress))
         for half in 0..<2 {
+            var vertices: [(CGPoint, CGFloat)] = []
             for index in 0..<4 {
                 let a = play[half][index], b = pause[half][index]
                 let point = CGPoint(x: rect.minX + (a.x + (b.x - a.x) * t) * rect.width,
                                     y: rect.minY + (a.y + (b.y - a.y) * t) * rect.height)
-                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                let seam = half == 0 ? (index == 1 || index == 2) : (index == 0 || index == 3)
+                let radius = min(rect.width, rect.height) * 0.09 * (seam ? t : 1)
+                if vertices.last?.0 != point { vertices.append((point, radius)) }
+            }
+            for index in vertices.indices {
+                let point = vertices[index].0
+                let previous = vertices[(index + vertices.count - 1) % vertices.count].0
+                let next = vertices[(index + 1) % vertices.count].0
+                let before = hypot(point.x - previous.x, point.y - previous.y)
+                let after = hypot(next.x - point.x, next.y - point.y)
+                let radius = min(vertices[index].1, min(before, after) * 0.45)
+                let entry = CGPoint(x: point.x + (previous.x - point.x) * radius / max(before, 0.001),
+                                    y: point.y + (previous.y - point.y) * radius / max(before, 0.001))
+                let exit = CGPoint(x: point.x + (next.x - point.x) * radius / max(after, 0.001),
+                                   y: point.y + (next.y - point.y) * radius / max(after, 0.001))
+                if index == 0 { path.move(to: entry) } else { path.addLine(to: entry) }
+                path.addQuadCurve(to: exit, control: point)
             }
             path.closeSubpath()
         }

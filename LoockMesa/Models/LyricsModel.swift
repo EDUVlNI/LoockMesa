@@ -45,12 +45,70 @@ struct LyricsQuery: Equatable {
     let album: String
     let duration: TimeInterval
     var key: String { [title, artist, album, String(duration.rounded())].joined(separator: "\u{001F}") }
+    var searchURL: URL? {
+        guard !title.trimmingCharacters(in: .whitespaces).isEmpty,
+              !artist.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        var url = URLComponents(string: "https://lrclib.net/api/search")!
+        // Search without the album; releases and deluxe editions often differ.
+        url.queryItems = [URLQueryItem(name: "track_name", value: title)]
+        return url.url
+    }
+    static func normalized(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
+    }
+    func acceptsArtist(_ candidate: String) -> Bool {
+        let expected = Self.normalized(artist), actual = Self.normalized(candidate)
+        guard !actual.isEmpty else { return false }
+        if expected == actual { return true }
+        // Spotify can publish multiple artists while LRCLIB lists just the lead.
+        let lead = artist.components(separatedBy: ",").first ?? artist
+        return Self.normalized(lead) == actual
+    }
+    func bestDocument(in records: [LyricsRecord]) -> LyricsDocument? {
+        var best: (Double, LyricsDocument)?
+        for record in records {
+            guard Self.normalized(record.trackName ?? "") == Self.normalized(title),
+                  acceptsArtist(record.artistName ?? ""), record.instrumental != true else { continue }
+            let knownDuration = duration.isFinite && duration > 0
+            let delta = abs((record.duration ?? 0) - duration)
+            if knownDuration {
+                guard let candidateDuration = record.duration, candidateDuration.isFinite,
+                      candidateDuration > 0, delta <= 3 else { continue }
+            }
+            var document = record.document
+            guard document.available else { continue }
+            if !knownDuration {
+                // Without duration we can show text but cannot verify matching timing.
+                if document.plain.isEmpty { document.plain = document.lines.map(\.text).joined(separator: "\n") }
+                document.lines = []
+            }
+            let score = (document.lines.isEmpty ? 0.0 : 100.0)
+                + (Self.normalized(record.albumName ?? "") == Self.normalized(album) ? 10 : 0)
+                - (knownDuration ? delta : 0)
+            if best == nil || score > best!.0 { best = (score, document) }
+        }
+        return best?.1
+    }
     var url: URL? {
         guard !title.isEmpty, !artist.isEmpty, duration.isFinite, duration > 0 else { return nil }
         var url = URLComponents(string: "https://lrclib.net/api/get")!
         url.queryItems = [URLQueryItem(name: "track_name", value: title), URLQueryItem(name: "artist_name", value: artist),
                          URLQueryItem(name: "album_name", value: album), URLQueryItem(name: "duration", value: String(Int(duration.rounded())))]
         return url.url
+    }
+}
+
+struct LyricsRecord: Decodable {
+    var trackName: String? = nil
+    var artistName: String? = nil
+    var albumName: String? = nil
+    var duration: Double? = nil
+    var instrumental: Bool? = nil
+    var plainLyrics: String? = nil
+    var syncedLyrics: String? = nil
+    var document: LyricsDocument {
+        instrumental == true ? LyricsDocument() : LyricsDocument.parse(synced: syncedLyrics, plain: plainLyrics)
     }
 }
 

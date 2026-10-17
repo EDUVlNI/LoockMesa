@@ -83,6 +83,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     private lazy var lyricsButtons: [NSButton] = (0..<4).map { index in
         let button = EditRemoveButton(title: "", target: self, action: #selector(lyricsControl(_:)))
         button.tag = index; button.isTransparent = true; button.isBordered = false
+        if index == 0 { button.toolTip = "Letras via LRCLIB. A disponibilidade pode ser diferente do Spotify." }
         button.setAccessibilityLabel(["Mostrar ou ocultar letras", "Faixa anterior", "Reproduzir ou pausar", "Próxima faixa"][index])
         addSubview(button)
         return button
@@ -100,6 +101,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     func observeLyricsControls() {
         guard rootView.kind == .musicLyrics, lyricSubscriptions.isEmpty else { return }
         LyricsService.shared.$document.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
+        LyricsService.shared.$showingLyrics.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
         rootView.music.$track.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
     }
     @objc private func lyricsControl(_ sender: NSButton) {
@@ -164,8 +166,8 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         }
         if rootView.kind == .musicLyrics {
             let geometry = LyricsLayout(size: rootView.size)
-            scrubView.isHidden = editing
-            if editing { rootView.music.cancelScrub() }
+            scrubView.isHidden = editing || LyricsService.shared.showingLyrics
+            if scrubView.isHidden { rootView.music.cancelScrub() }
             var progressRect = geometry.progress
             if !isFlipped { progressRect.origin.y = bounds.height - progressRect.maxY }
             scrubView.frame = progressRect
@@ -194,7 +196,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         if rootView.kind == .music && !editing,
            let control = musicButtons.first(where: { !$0.isHidden && $0.frame.contains(local) }) { return control }
         if rootView.kind == .musicLyrics && !editing {
-            if scrubView.frame.contains(local) { return scrubView }
+            if !LyricsService.shared.showingLyrics && !scrubView.isHidden && scrubView.frame.contains(local) { return scrubView }
             // Return the disabled native button too: clicks must not fall through and open the player.
             if let control = lyricsButtons.first(where: { !$0.isHidden && $0.frame.contains(local) }) { return control }
             if LyricsService.shared.showingLyrics && (LyricsService.shared.document.lines.isEmpty || !rootView.music.position.known) {
