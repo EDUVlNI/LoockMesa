@@ -108,7 +108,7 @@ struct GalleryView: View {
         }
     }
     private func variants(_ kind: WidgetKind) -> [String] {
-        kind == .clock ? ["analog", "digital"] : kind == .calendar ? ["month", "date"] : ["standard"]
+        kind == .weather ? ["standard", "daily", "details", "sun"] : kind == .clock ? ["analog", "digital"] : kind == .calendar ? ["month", "date"] : ["standard"]
     }
     private func availableSizes(_ kind: WidgetKind, _ variant: String) -> [WidgetSize] {
         if kind == .calendar && variant == "date" { return [.medium] }
@@ -116,7 +116,7 @@ struct GalleryView: View {
         return WidgetSize.allCases
     }
     private func variantTitle(_ kind: WidgetKind, _ variant: String) -> String {
-        switch variant { case "analog": return "Analógico"; case "digital": return "Digital"; case "month": return "Mês e eventos"; case "date": return "Data"; default: return kind.title }
+        switch variant { case "daily": return "Previsão diária"; case "details": return "Detalhes do clima"; case "sun": return "Nascer e pôr do sol"; case "analog": return "Analógico"; case "digital": return "Digital"; case "month": return "Mês e eventos"; case "date": return "Data"; default: return kind.title }
     }
     private func settingToggle(_ title: String, value: Binding<Bool>) -> some View {
         HStack { Text(title); Spacer(); Toggle(title, isOn: value).labelsHidden().toggleStyle(.switch) }

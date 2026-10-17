@@ -120,6 +120,28 @@ struct Checks {
         let forecast = try JSONDecoder().decode(ForecastResponse.self, from: data).snapshot()
         assert(forecast.temperature == 21 && forecast.hours.first?.temperature == 21 && forecast.hours.count == 2)
         assert(forecast.days.first?.label == "Hoje")
+        assert(forecast.uv == nil && forecast.sunrise == nil && forecast.airQuality == nil)
+        var solarFixture = forecast
+        solarFixture.sunrise = Date(timeIntervalSince1970: 1000)
+        solarFixture.sunset = Date(timeIntervalSince1970: 2000)
+        solarFixture.nextSunrise = Date(timeIntervalSince1970: 3000)
+        assert(solarFixture.solarProgress(at: Date(timeIntervalSince1970: 1500)) == 0.5)
+        assert(solarFixture.solarEvent(at: Date(timeIntervalSince1970: 2500)).date == solarFixture.nextSunrise)
+        assert(solarFixture.solarProgress(at: Date(timeIntervalSince1970: 2500)) == 1)
+        var extended = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        extended["timezone"] = "America/Sao_Paulo"
+        var extendedHours = extended["hourly"] as! [String: Any]
+        extendedHours["uv_index"] = [1, 3, 5]
+        extendedHours["precipitation_probability"] = [0, 25, 50]
+        extended["hourly"] = extendedHours
+        var extendedDays = extended["daily"] as! [String: Any]
+        extendedDays["sunrise"] = ["2026-09-22T06:00", "2026-09-23T06:01"]
+        extendedDays["sunset"] = ["2026-09-22T18:00"]
+        extended["daily"] = extendedDays
+        let enriched = try JSONDecoder().decode(ForecastResponse.self, from: JSONSerialization.data(withJSONObject: extended)).snapshot()
+        assert(enriched.uv == 3 && enriched.precipitation == 25)
+        assert(enriched.localTime(enriched.sunrise) == "06:00" && enriched.localTime(enriched.nextSunrise) == "06:01")
+
         let empty = Data(#"{"current":{"time":"2026-09-22T14:15","temperature_2m":21,"weather_code":2},"hourly":{"time":[],"temperature_2m":[],"weather_code":[]},"daily":{"time":[],"temperature_2m_min":[],"temperature_2m_max":[],"weather_code":[]}}"#.utf8)
         do { _ = try JSONDecoder().decode(ForecastResponse.self, from: empty).snapshot(); assertionFailure("Empty daily must be rejected") } catch {}
         let nightData = Data(String(data: data, encoding: .utf8)!.replacingOccurrences(of: "\"weather_code\":2}", with: "\"weather_code\":45,\"is_day\":0}").utf8)
@@ -170,8 +192,8 @@ struct Checks {
         var legacy = DeskPreferences()
         legacy.widgets = [WidgetItem(kind: .macBattery, size: .large, x: 200, y: 700), WidgetItem(kind: .weather)]
         legacy.normalize()
-        assert(!legacy.widgets.contains { $0.kind == .macBattery })
-        assert(legacy.widgets.first { $0.kind == .headphones }?.x == 200)
+        assert(legacy.widgets.contains { $0.kind == .macBattery })
+        assert(legacy.widgets.first { $0.kind == .macBattery }?.x == 200)
         let moved = CGRect(x: 560, y: 496, width: 164, height: 164)
         let original = [PlacementRequest(kind: .headphones, size: preferred.size, preferred: preferred), PlacementRequest(kind: .clock, size: moved.size, preferred: moved)]
         let stable = DesktopGrid.arrange(original, screens: [bounds])

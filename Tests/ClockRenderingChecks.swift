@@ -49,6 +49,33 @@ import AppKit
         let resumed = try capture(analogHost, "clock029-resumed.png")
         precondition(resumed != pausedB && resumed != recovering, "Rendered clock must recover and continue ticking")
         print("PASS: actual NSHostingView renders analog movement, digital marker movement, outside-desktop freeze and animated recovery")
-        withExtendedLifetime((analogWindow, digitalWindow)) {}
+        let weather = WeatherService(preview: .demo)
+        var previewWindows: [NSWindow] = []
+        for variant in ["daily", "details", "sun"] {
+            for size in WidgetSize.allCases {
+                let host = NSHostingView(rootView: WeatherWidget(size: size, city: "Curitiba", service: weather, variant: variant)
+                    .frame(width: size.dimensions.width, height: size.dimensions.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous)))
+                host.frame = CGRect(origin: .zero, size: size.dimensions)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                _ = try capture(host, "weather-\(variant)-\(size.rawValue).png")
+            }
+        }
+        for charging in [false, true] {
+            let host = NSHostingView(rootView: HStack(spacing: 25) {
+                ForEach([0, 20, 75, 100], id: \.self) { level in
+                    BatteryRing(symbol: "laptopcomputer", value: level, dimension: 65, charging: charging, lowPower: !charging)
+                }
+            }.padding(25).background(Color(white: 0.12)))
+            host.frame = CGRect(x: 0, y: 0, width: 390, height: 120)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; previewWindows.append(window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            _ = try capture(host, "battery-\(charging).png")
+        }
+        withExtendedLifetime((analogWindow, digitalWindow, previewWindows)) {}
+
     }
 }
