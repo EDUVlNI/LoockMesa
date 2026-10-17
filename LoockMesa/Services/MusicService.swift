@@ -43,7 +43,9 @@ final class MusicService: ObservableObject {
     @Published private(set) var controlFeedback = MusicControlFeedback()
     private var scrubIdentity: String?
     private var setElapsedTime: ((Double) -> Void)?
-    var canSeek: Bool { enabled && !paused && track.pid > 0 && position.known && position.duration > 0 && setElapsedTime != nil }
+    private var usesNativePlayerSeeking = false
+    private let seekQueue = DispatchQueue(label: "LoockMesa.playerSeeking", qos: .userInitiated)
+    var canSeek: Bool { enabled && !paused && track.pid > 0 && position.known && position.duration > 0 && (setElapsedTime != nil || (usesNativePlayerSeeking && ["com.spotify.client", "com.apple.Music"].contains(track.bundle))) }
     func beginScrub(fraction: Double) {
         guard canSeek else { return }
         scrubIdentity = track.identity
@@ -68,10 +70,48 @@ final class MusicService: ObservableObject {
         getPID?(.main) { [weak self] pid in
             guard let self, self.canSeek, pid == expectedPID, self.track.identity == expectedIdentity,
                   self.resolveBundle(pid) == expectedBundle, self.provider.accepts(expectedBundle) else { return }
+            if self.usesNativePlayerSeeking && ["com.spotify.client", "com.apple.Music"].contains(expectedBundle) {
+                self.seekPlayer(to: target, bundle: expectedBundle, identity: expectedIdentity)
+                return
+            }
             self.setElapsedTime?(target)
             self.position = PlaybackPosition(elapsed: target, duration: self.position.duration, sampledAt: Date(),
                 rate: self.isPlaying ? self.position.rate : 0, known: true)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.refreshAll() }
+        }
+    }
+    /// Spotify may ignore MediaRemote elapsed-time commands. Use its native scripting command.
+    private func seekPlayer(to target: Double, bundle: String, identity: String) {
+        func quoted(_ value: String) -> String {
+            "\"" + value.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        }
+        let title = quoted(track.title), artist = quoted(track.artist)
+        let script = """
+        tell application id "\(bundle)"
+            if running then
+                if name of current track is \(title) and artist of current track is \(artist) then
+                    set player position to \(target)
+                    return true
+                end if
+            end if
+        end tell
+        return false
+        """
+        seekQueue.async { [weak self] in
+            var error: NSDictionary?
+            let result = NSAppleScript(source: script)?.executeAndReturnError(&error)
+            let succeeded = error == nil && result?.booleanValue == true
+            DispatchQueue.main.async {
+                guard let self, self.track.identity == identity, self.canSeek else { return }
+                if succeeded {
+                    self.position = PlaybackPosition(elapsed: target, duration: self.position.duration,
+                        sampledAt: Date(), rate: self.isPlaying ? self.position.rate : 0, known: true)
+                } else {
+                    self.status = "Permita controlar o player em Ajustes do Sistema → Privacidade e Segurança → Automação."
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.refreshAll() }
+            }
         }
     }
     @Published private(set) var spotifyHistory = SpotifyRecentHistory()
@@ -161,6 +201,7 @@ final class MusicService: ObservableObject {
     private var handle: UnsafeMutableRawPointer?
 
     private init() {
+        usesNativePlayerSeeking = true
         historyDefaults = .standard
         if let data = historyDefaults?.data(forKey: historyKey), let saved = try? JSONDecoder().decode(SpotifyRecentHistory.self, from: data) { spotifyHistory = saved }
 

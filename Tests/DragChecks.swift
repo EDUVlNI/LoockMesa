@@ -306,6 +306,26 @@ import SwiftUI
         precondition(seekTargets.count == 2 && seeking.scrubPosition == nil, "A drag from a previous track must not seek the new track")
         seekPID = 99; seeking.seek(to: 70)
         precondition(seekTargets.count == 2, "Verify source before seeking")
+        seekPID = 42
+        let seekHost = WidgetHost(rootView: WidgetFace(music: seeking, kind: .musicLyrics, size: .medium,
+            store: source.store, devices: source.devices, weather: source.weather, bluetooth: source.bluetooth, agenda: source.agenda))
+        window.contentView = seekHost
+        seekHost.frame = CGRect(x: 0, y: 0, width: 344, height: 164)
+        seekHost.layoutSubtreeIfNeeded()
+        let slider = seekHost.subviews.first { $0.accessibilityRole() == .slider }!
+        func scrubEvent(_ type: NSEvent.EventType, fraction: CGFloat) -> NSEvent {
+            let location = slider.convert(NSPoint(x: slider.bounds.width * fraction, y: slider.bounds.midY), to: nil)
+            return NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        }
+        let hitPoint = seekHost.convert(NSPoint(x: slider.frame.midX, y: slider.frame.midY), to: seekHost.superview)
+        precondition(seekHost.hitTest(hitPoint) === slider)
+        slider.mouseDown(with: scrubEvent(.leftMouseDown, fraction: 0.25))
+        slider.mouseDragged(with: scrubEvent(.leftMouseDragged, fraction: 0.75))
+        precondition(seeking.scrubPosition == 150)
+        slider.mouseUp(with: scrubEvent(.leftMouseUp, fraction: 0.75))
+        precondition(seekTargets.last == 150 && seeking.scrubPosition == nil,
+                     "Native desktop drag must commit the requested position on release")
         seeking.stop()
         for size in WidgetSize.allCases {
             let geometry = LyricsLayout(size: size)

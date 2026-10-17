@@ -138,7 +138,7 @@ struct LyricsWidget: View {
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.18))
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.75))
                         .frame(width: proxy.size.width * fraction)
-                }.frame(height: expanded ? 6 : 1)
+                }.frame(height: expanded ? 6 : 2)
                     .frame(height: 8)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: expanded)
             }.frame(height: 8)

@@ -22,6 +22,6 @@ jobs:
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LoockMesa-0.32.0-Intel
-          path: dist/LoockMesa-0.32.0-Intel.zip
+          name: LoockMesa-0.33.0-Intel
+          path: dist/LoockMesa-0.33.0-Intel.zip
           if-no-files-found: error
