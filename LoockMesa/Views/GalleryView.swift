@@ -133,6 +133,23 @@ struct GalleryView: View {
                 if let error = login.error { Text(error).font(.caption).foregroundStyle(.red) }
             }.onAppear { login.refresh() }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in login.refresh() }
+            settingsGroup("Tela de bloqueio · experimental") {
+                settingToggle("Mostrar na tela de bloqueio", value: Binding(get: { store.preferences.lockScreenEnabled == true }, set: { store.preferences.lockScreenEnabled = $0 }))
+                Text("Informações acima da foto e Música e Letras abaixo do Touch ID. A exibição e os cliques precisam ser conferidos no seu macOS.").font(.caption).foregroundStyle(.secondary)
+                settingToggle("Linha de informações", value: Binding(get: { store.preferences.lockShowInformation != false }, set: { store.preferences.lockShowInformation = $0 }))
+                settingToggle("Bateria do Mac", value: Binding(get: { store.preferences.lockShowBattery != false }, set: { store.preferences.lockShowBattery = $0 }))
+                settingToggle("Bateria dos fones", value: Binding(get: { store.preferences.lockShowHeadphones != false }, set: { store.preferences.lockShowHeadphones = $0 }))
+                settingToggle("Clima", value: Binding(get: { store.preferences.lockShowWeather != false }, set: { store.preferences.lockShowWeather = $0 }))
+                Text("Altura das informações")
+                Slider(value: Binding(get: { store.preferences.lockInfoOffset ?? 0 }, set: { store.preferences.lockInfoOffset = $0 }), in: -80...80)
+                Divider()
+                settingToggle("Player de música e letras", value: Binding(get: { store.preferences.lockShowPlayer != false }, set: { store.preferences.lockShowPlayer = $0 }))
+                settingToggle("Player somente durante a reprodução", value: Binding(get: { store.preferences.lockPlayerOnlyPlaying == true }, set: { store.preferences.lockPlayerOnlyPlaying = $0 }))
+                Text("Altura do player")
+                Slider(value: Binding(get: { store.preferences.lockPlayerOffset ?? 0 }, set: { store.preferences.lockPlayerOffset = $0 }), in: -60...60)
+                Button("Visualizar posições por 12 segundos") { NotificationCenter.default.post(name: .loockPreviewLockScreen, object: nil) }
+                Text("A prévia não bloqueia o Mac. Para testar de verdade, ative a opção e use Control + Command + Q. Funciona após entrar na sua conta; senha e Touch ID continuam sendo do macOS.").font(.caption).foregroundStyle(.secondary)
+            }
             settingsGroup("Aparência") {
                 Picker("Estilo", selection: Binding(get: { store.preferences.appearance ?? .original }, set: { store.preferences.appearance = $0 })) {
                     ForEach(WidgetAppearance.allCases) { Text($0.rawValue).tag($0) }

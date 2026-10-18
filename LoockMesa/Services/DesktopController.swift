@@ -418,8 +418,8 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         guard !reconciling, !dragging else { return }
         reconciling = true; defer { reconciling = false }
         MusicService.shared.collectsSpotifyCovers = store.preferences.automaticSpotifyCovers != false
-        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: isVisible && (store.item(.music).enabled || store.item(.musicLyrics).enabled))
-        LyricsService.shared.configure(enabled: isVisible && store.item(.musicLyrics).enabled)
+        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: (isVisible && (store.item(.music).enabled || store.item(.musicLyrics).enabled)) || store.preferences.lockScreenEnabled == true)
+        LyricsService.shared.configure(enabled: (isVisible && store.item(.musicLyrics).enabled) || store.preferences.lockScreenEnabled == true)
         weather.configure(city: store.preferences.city, live: store.preferences.liveWeather)
         updateGuides()
         guard isVisible else { panels.values.forEach { ($0.contentView as? WidgetHost)?.editing = false; $0.orderOut(nil) }; return }

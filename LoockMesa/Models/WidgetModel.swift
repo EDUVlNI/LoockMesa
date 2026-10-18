@@ -72,6 +72,15 @@ struct DeskPreferences: Codable, Equatable {
     var appearance: WidgetAppearance? = nil
     var monochrome = false
     var frostedOutsideDesktop: Bool? = nil
+    var lockScreenEnabled: Bool? = nil
+    var lockShowInformation: Bool? = nil
+    var lockShowBattery: Bool? = nil
+    var lockShowHeadphones: Bool? = nil
+    var lockShowWeather: Bool? = nil
+    var lockShowPlayer: Bool? = nil
+    var lockPlayerOnlyPlaying: Bool? = nil
+    var lockInfoOffset: Double? = nil
+    var lockPlayerOffset: Double? = nil
     var positionsLocked = false
     mutating func normalize() {
         monochrome = false

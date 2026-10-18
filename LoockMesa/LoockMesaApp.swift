@@ -20,6 +20,7 @@ struct LoockMesaApp: App {
     private let weather = WeatherService()
     private let bluetooth = BluetoothBatteryService()
     private let agenda = AgendaService()
+    private var lockScreen: LockScreenController?
     private var desktop: DesktopController?
     private var status: NSStatusItem?
     private var gallery: NSWindow?
@@ -34,12 +35,16 @@ struct LoockMesaApp: App {
     private var screenAsleep = false
     private var lastClockPause: Bool?
     private func updateActivity() {
-        let paused = asleep || screenAsleep || (!showingWidgets && gallery?.isVisible != true)
+        let paused = asleep || screenAsleep || (!showingWidgets && gallery?.isVisible != true && lockScreen?.needsServices != true)
         let clocksPaused = asleep || screenAsleep || !showingWidgets
         if lastClockPause != clocksPaused {
             lastClockPause = clocksPaused
             NotificationCenter.default.post(name: .loockClockActivity, object: clocksPaused)
         }
+        let lockMedia = lockScreen?.needsServices == true || store.preferences.lockScreenEnabled == true
+        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic,
+            enabled: lockMedia || (showingWidgets && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
+        LyricsService.shared.configure(enabled: lockMedia || (showingWidgets && store.item(.musicLyrics).enabled))
         MusicService.shared.setPaused(paused)
         devices.setPaused(paused); bluetooth.setPaused(paused)
         agenda.setPaused(paused); weather.setPaused(paused)
@@ -58,11 +63,14 @@ struct LoockMesaApp: App {
                     case NSWorkspace.screensDidSleepNotification: self.screenAsleep = true
                     default: self.screenAsleep = false
                     }
+                    self.lockScreen?.setSleeping(self.asleep || self.screenAsleep)
                     self.updateActivity()
                 }
             })
         }
         desktop = DesktopController(store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda)
+        lockScreen = LockScreenController(store: store, devices: devices, weather: weather, bluetooth: bluetooth)
+        lockScreen?.activityChanged = { [weak self] in self?.updateActivity() }
         refreshDesktopFocus(NSWorkspace.shared.frontmostApplication)
         activityObservers.append(center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -109,6 +117,8 @@ struct LoockMesaApp: App {
         // Never drives authentication or treats the event as a security guarantee.
         lockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.hideGallery()
+                self?.lockScreen?.setLocked(true)
                 self?.lastReveal = .distantPast
                 self?.desktop?.prepareUnlock()
             }
@@ -116,6 +126,9 @@ struct LoockMesaApp: App {
         unlockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.revealDesktop() }
         }
+        activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.lockScreen?.setLocked(false) }
+        })
         activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.revealDesktop() }
         })
@@ -141,11 +154,13 @@ struct LoockMesaApp: App {
             ownID: Bundle.main.bundleIdentifier, frontmostPID: app.processIdentifier, windows: windows, screens: screens))
     }
     private func revealDesktop() {
+        lockScreen?.setLocked(false)
         guard Date().timeIntervalSince(lastReveal) > 2 else { return }
         lastReveal = Date()
         desktop?.animateUnlock()
     }
     func applicationWillTerminate(_ notification: Notification) {
+        lockScreen?.dismiss()
         desktopFocusTimer?.invalidate()
         galleryObservers.forEach { NotificationCenter.default.removeObserver($0) }
         dropPanels.forEach { $0.close() }
