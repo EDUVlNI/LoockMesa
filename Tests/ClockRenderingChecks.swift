@@ -4,6 +4,10 @@ import AppKit
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
         _ = NSApplication.shared
+        precondition(LockSessionState(screenLocked: true, ownConsole: true).shouldPresent)
+        precondition(!LockSessionState(screenLocked: false, ownConsole: true).shouldPresent)
+        precondition(!LockSessionState(screenLocked: true, ownConsole: false).shouldPresent)
+        precondition(!LockSessionState(screenLocked: false, ownConsole: false).shouldPresent)
         for screen in [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: -1920, y: 200, width: 1920, height: 1080), CGRect(x: 0, y: 0, width: 1280, height: 800)] {
             let layout = LockScreenLayout.frames(screen: screen, infoOffset: 0, playerOffset: 0)
             precondition(screen.contains(layout.info) && screen.contains(layout.player))

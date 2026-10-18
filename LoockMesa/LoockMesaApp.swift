@@ -127,7 +127,7 @@ struct LoockMesaApp: App {
             Task { @MainActor [weak self] in self?.revealDesktop() }
         }
         activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.lockScreen?.setLocked(false) }
+            Task { @MainActor [weak self] in self?.lockScreen?.synchronize(rebuild: true) }
         })
         activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.revealDesktop() }
@@ -155,6 +155,7 @@ struct LoockMesaApp: App {
     }
     private func revealDesktop() {
         lockScreen?.setLocked(false)
+        guard lockScreen?.isLocked != true else { return }
         guard Date().timeIntervalSince(lastReveal) > 2 else { return }
         lastReveal = Date()
         desktop?.animateUnlock()

@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import OSLog
 
 extension Notification.Name {
     static let loockPreviewLockScreen = Notification.Name("LoockMesa.previewLockScreen")
@@ -19,36 +20,81 @@ extension Notification.Name {
     private var locked = false
     private var previewing = false
     private var sleeping = false
+    private var monitor: Timer?
+    private var suppressUntil = Date.distantPast
+    private var lastReassert = Date.distantPast
+    private var presenter: LockScreenSpace?
+    private let log = Logger(subsystem: "com.eduvini.LoockMesa", category: "LockScreen")
+    var isLocked: Bool { locked }
     var needsServices: Bool { !sleeping && (previewing || (locked && store.preferences.lockScreenEnabled == true)) }
     var activityChanged: (() -> Void)?
 
     init(store: DeskStore, devices: DeviceService, weather: WeatherService, bluetooth: BluetoothBatteryService) {
         self.store = store; self.devices = devices; self.weather = weather; self.bluetooth = bluetooth
-        store.$preferences.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.refresh(); self?.activityChanged?() }.store(in: &subscriptions)
+        store.$preferences.dropFirst().receive(on: RunLoop.main).sink { [weak self] _ in self?.synchronize(rebuild: true) }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: .loockPreviewLockScreen).sink { [weak self] _ in self?.preview() }.store(in: &subscriptions)
-        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification).sink { [weak self] _ in self?.refresh() }.store(in: &subscriptions)
+        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification).sink { [weak self] _ in self?.synchronize(rebuild: true) }.store(in: &subscriptions)
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.synchronize() }
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common); monitor = timer
+    }
+    deinit { monitor?.invalidate() }
+
+    /// Notifications are hints; a delayed lock notification must not display on the desktop.
+    func synchronize(rebuild: Bool = false) {
+        if previewing && rebuild { refresh(); activityChanged?() }
+        guard store.preferences.lockScreenEnabled == true || locked else { return }
+        guard Date() >= suppressUntil else { return }
+        let next = LockSessionState.current
+        let value = next.shouldPresent
+        let changed = locked != value
+        if changed { previewTask?.cancel(); previewing = false; locked = value }
+        if changed || rebuild { refresh(); activityChanged?() }
+        if locked && needsServices && Date().timeIntervalSince(lastReassert) >= 1 {
+            if panels.isEmpty { refresh() }
+            lastReassert = Date()
+            // Loginwindow may replace its visible spaces after display wake.
+            if presenter?.show(windows: panels.map { $0.windowNumber }) != true { removePanels() }
+        }
     }
     func setLocked(_ value: Bool) {
-        previewTask?.cancel(); previewTask = nil; previewing = false
-        locked = value; refresh(); activityChanged?()
+        // Read the session instead of trusting ordering of distributed notifications.
+        if !value {
+            suppressUntil = Date().addingTimeInterval(1)
+            locked = false; previewing = false; previewTask?.cancel()
+            removePanels(); activityChanged?(); return
+        }
+        suppressUntil = .distantPast
+        synchronize(rebuild: true)
     }
-    func setSleeping(_ value: Bool) { sleeping = value; refresh(); activityChanged?() }
+    func setSleeping(_ value: Bool) {
+        sleeping = value
+        if value { removePanels() } else { synchronize(rebuild: true) }
+        activityChanged?()
+    }
     func preview() {
-        guard !locked else { return }
+        guard !LockSessionState.current.shouldPresent else { synchronize(); return }
         previewTask?.cancel(); previewing = true; refresh(); activityChanged?()
         previewTask = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 12_000_000_000) } catch { return }
             self?.previewing = false; self?.refresh(); self?.activityChanged?()
         }
     }
-    func dismiss() { previewTask?.cancel(); previewTask = nil; previewing = false; locked = false; removePanels() }
-    private func removePanels() { panels.forEach { $0.orderOut(nil); $0.contentView = nil; $0.close() }; panels.removeAll() }
+    func dismiss() { monitor?.invalidate(); monitor = nil; previewTask?.cancel(); previewTask = nil; previewing = false; locked = false; removePanels() }
+    private func removePanels() { presenter?.hide(); panels.forEach { $0.alphaValue = 0; $0.orderOut(nil); $0.contentView = nil; $0.close() }; panels.removeAll() }
     private func refresh() {
         removePanels()
         guard needsServices, let screen = NSScreen.screens.first(where: {
             guard let id = $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return false }
             return CGDisplayIsBuiltin(id.uint32Value) != 0
         }) ?? NSScreen.main else { return }
+        if !previewing {
+            guard LockSessionState.current.shouldPresent else { return }
+            if presenter == nil { presenter = LockScreenSpace() }
+            guard presenter != nil else { log.error("Lock screen presentation unavailable"); return }
+        }
         let p = store.preferences
         let frames = LockScreenLayout.frames(screen: screen.frame, infoOffset: p.lockInfoOffset ?? 0, playerOffset: p.lockPlayerOffset ?? 0)
         if p.lockShowInformation != false {
@@ -69,7 +115,13 @@ extension Notification.Name {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.ignoresMouseEvents = !interactive; panel.animationBehavior = .none
         panel.contentView = NSHostingView(rootView: content)
-        panel.alphaValue = 0; panel.orderFrontRegardless(); panels.append(panel)
+        panel.alphaValue = 0
+        if !previewing {
+            // Adopt before ordering, so no frame can leak into the ordinary desktop space.
+            guard LockSessionState.current.shouldPresent,
+                  presenter?.show(windows: [panel.windowNumber]) == true else { panel.close(); return }
+        }
+        panel.orderFrontRegardless(); panels.append(panel)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22
             panel.animator().alphaValue = 1
@@ -129,4 +181,64 @@ private struct LockScreenPlayer: View {
             }
         }.frame(width: 344, height: 164)
     }
+}
+
+
+struct LockSessionState {
+    var screenLocked: Bool
+    var ownConsole: Bool
+    var shouldPresent: Bool { screenLocked && ownConsole }
+    static var current: LockSessionState {
+        guard let session = CGSessionCopyCurrentDictionary() as? [String: Any] else {
+            return LockSessionState(screenLocked: false, ownConsole: false)
+        }
+        let owner = (session[kCGSessionUserIDKey as String] as? NSNumber)?.uint32Value
+        let console = (session[kCGSessionOnConsoleKey as String] as? NSNumber)?.boolValue ?? false
+        let locked = (session["CGSSessionScreenIsLocked"] as? NSNumber)?.boolValue ?? false
+        return LockSessionState(screenLocked: locked, ownConsole: console && owner == getuid())
+    }
+}
+
+/// SkyLight space call sequence adapted from Lakr233/SkyLightWindow (MIT).
+/// See Resources/SkyLightWindow-LICENSE.txt. All symbols and return values are checked.
+/// Only our small non-key panels are adopted; authentication stays entirely with macOS.
+private final class LockScreenSpace {
+    private typealias Connection = @convention(c) () -> Int32
+    private typealias Create = @convention(c) (Int32, Int32, Int32) -> Int32
+    private typealias Level = @convention(c) (Int32, Int32, Int32) -> Int32
+    private typealias Spaces = @convention(c) (Int32, CFArray) -> Int32
+    private typealias Adopt = @convention(c) (Int32, Int32, CFArray, Int32) -> Int32
+    private typealias Destroy = @convention(c) (Int32, Int32) -> Int32
+    private let handle: UnsafeMutableRawPointer
+    private let connection: Int32
+    private let space: Int32
+    private let showSpaces: Spaces
+    private let hideSpaces: Spaces
+    private let adopt: Adopt
+    private let destroy: Destroy
+    init?() {
+        guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW | RTLD_LOCAL) else { return nil }
+        guard let c = dlsym(h, "SLSMainConnectionID"), let n = dlsym(h, "SLSSpaceCreate"),
+              let l = dlsym(h, "SLSSpaceSetAbsoluteLevel"), let s = dlsym(h, "SLSShowSpaces"),
+              let a = dlsym(h, "SLSSpaceAddWindowsAndRemoveFromSpaces"), let hide = dlsym(h, "SLSHideSpaces"),
+              let d = dlsym(h, "SLSSpaceDestroy") else { dlclose(h); return nil }
+        let cid = unsafeBitCast(c, to: Connection.self)()
+        let sid = unsafeBitCast(n, to: Create.self)(cid, 1, 0)
+        let cleanup = unsafeBitCast(d, to: Destroy.self)
+        guard sid > 0 else { dlclose(h); return nil }
+        guard unsafeBitCast(l, to: Level.self)(cid, sid, 400) == 0 else {
+            _ = cleanup(cid, sid); dlclose(h); return nil
+        }
+        handle = h; connection = cid; space = sid
+        showSpaces = unsafeBitCast(s, to: Spaces.self); hideSpaces = unsafeBitCast(hide, to: Spaces.self)
+        adopt = unsafeBitCast(a, to: Adopt.self); destroy = cleanup
+    }
+    func show(windows: [Int]) -> Bool {
+        guard !windows.isEmpty, LockSessionState.current.shouldPresent else { hide(); return false }
+        guard adopt(connection, space, windows.map { NSNumber(value: $0) } as CFArray, 7) == 0 else { hide(); return false }
+        guard showSpaces(connection, [NSNumber(value: space)] as CFArray) == 0 else { hide(); return false }
+        return true
+    }
+    func hide() { _ = hideSpaces(connection, [NSNumber(value: space)] as CFArray) }
+    deinit { hide(); _ = destroy(connection, space); dlclose(handle) }
 }
