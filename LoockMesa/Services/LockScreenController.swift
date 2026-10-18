@@ -135,7 +135,7 @@ extension Notification.Name {
         if !previewing {
             guard LockSessionState.current.shouldPresent else { return }
             if presenter == nil { presenter = LockScreenSpace() }
-            guard presenter != nil else { log.error("Lock screen presentation unavailable"); LockScreenDiagnostics.shared.record("Recurso indisponível neste macOS", detail: "SkyLight symbols or space initialization failed"); return }
+            guard presenter != nil else { log.error("Lock screen presentation unavailable"); LockScreenDiagnostics.shared.record("Recurso indisponível neste macOS", detail: LockScreenSpace.initializationError); return }
         }
         let p = store.preferences
         let frames = LockScreenLayout.frames(screen: screen.frame, infoOffset: p.lockInfoOffset ?? 0, playerOffset: p.lockPlayerOffset ?? 0)
@@ -282,46 +282,74 @@ struct LockSessionState {
 /// SkyLight space call sequence adapted from Lakr233/SkyLightWindow (MIT).
 /// See Resources/SkyLightWindow-LICENSE.txt. All symbols and return values are checked.
 /// Only our small non-key panels are adopted; authentication stays entirely with macOS.
-private final class LockScreenSpace {
+final class LockScreenSpace {
+    // Space IDs are 64-bit on Intel. Setters with undocumented return contracts
+    // are invoked as Void; success is verified through independent query APIs.
     private typealias Connection = @convention(c) () -> Int32
-    private typealias Create = @convention(c) (Int32, Int32, Int32) -> Int32
-    private typealias Level = @convention(c) (Int32, Int32, Int32) -> Int32
-    private typealias Spaces = @convention(c) (Int32, CFArray) -> Int32
-    private typealias Adopt = @convention(c) (Int32, Int32, CFArray, Int32) -> Int32
-    private typealias Destroy = @convention(c) (Int32, Int32) -> Int32
+    private typealias Create = @convention(c) (Int32, Int32, UnsafeRawPointer?) -> UInt64
+    private typealias Level = @convention(c) (Int32, UInt64, Int32) -> Void
+    private typealias GetLevel = @convention(c) (Int32, UInt64) -> Int32
+    private typealias Spaces = @convention(c) (Int32, CFArray) -> Void
+    private typealias Adopt = @convention(c) (Int32, UInt64, CFArray, Int32) -> Void
+    private typealias CopySpaces = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+    private typealias Destroy = @convention(c) (Int32, UInt64) -> Void
     private let handle: UnsafeMutableRawPointer
     private let connection: Int32
-    private let space: Int32
+    private let space: UInt64
     private let showSpaces: Spaces
     private let hideSpaces: Spaces
     private let adopt: Adopt
-    private let destroy: Destroy
+    private let copySpaces: CopySpaces
+    private let destroy: Destroy?
     private(set) var lastError = ""
+    static private(set) var initializationError = "Not attempted"
     init?() {
-        guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW | RTLD_LOCAL) else { return nil }
-        guard let c = dlsym(h, "SLSMainConnectionID"), let n = dlsym(h, "SLSSpaceCreate"),
-              let l = dlsym(h, "SLSSpaceSetAbsoluteLevel"), let s = dlsym(h, "SLSShowSpaces"),
-              let a = dlsym(h, "SLSSpaceAddWindowsAndRemoveFromSpaces"), let hide = dlsym(h, "SLSHideSpaces"),
-              let d = dlsym(h, "SLSSpaceDestroy") else { dlclose(h); return nil }
+        guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW | RTLD_LOCAL) else {
+            Self.initializationError = "dlopen SkyLight: " + (dlerror().map { String(cString: $0) } ?? "unknown error")
+            return nil
+        }
+        func resolve(_ name: String) -> UnsafeMutableRawPointer? {
+            let legacy = name.replacingOccurrences(of: "SLS", with: "CGS", options: .anchored)
+            if let address = dlsym(h, name) ?? dlsym(h, legacy) { return address }
+            Self.initializationError = "Missing symbol: \(name) / \(legacy)"
+            return nil
+        }
+        guard let c = resolve("SLSMainConnectionID"), let n = resolve("SLSSpaceCreate"),
+              let l = resolve("SLSSpaceSetAbsoluteLevel"), let get = resolve("SLSSpaceGetAbsoluteLevel"),
+              let s = resolve("SLSShowSpaces"), let a = resolve("SLSSpaceAddWindowsAndRemoveFromSpaces"),
+              let hide = resolve("SLSHideSpaces"), let query = resolve("SLSCopySpacesForWindows") else { dlclose(h); return nil }
+        let d = dlsym(h, "SLSSpaceDestroy") ?? dlsym(h, "CGSSpaceDestroy")
+        let cleanup = d.map { unsafeBitCast($0, to: Destroy.self) }
         let cid = unsafeBitCast(c, to: Connection.self)()
-        let sid = unsafeBitCast(n, to: Create.self)(cid, 1, 0)
-        let cleanup = unsafeBitCast(d, to: Destroy.self)
-        guard sid > 0 else { dlclose(h); return nil }
-        guard unsafeBitCast(l, to: Level.self)(cid, sid, 400) == 0 else {
-            _ = cleanup(cid, sid); dlclose(h); return nil
+        guard cid != 0 else { Self.initializationError = "Main connection ID is zero"; dlclose(h); return nil }
+        let sid = unsafeBitCast(n, to: Create.self)(cid, 1, nil)
+        guard sid != 0 else { Self.initializationError = "SpaceCreate returned zero (connection \(cid))"; dlclose(h); return nil }
+        unsafeBitCast(l, to: Level.self)(cid, sid, 400)
+        let actualLevel = unsafeBitCast(get, to: GetLevel.self)(cid, sid)
+        guard actualLevel == 400 else {
+            Self.initializationError = "Space level readback: expected 400, got \(actualLevel); space \(sid)"
+            cleanup?(cid, sid); dlclose(h); return nil
         }
         handle = h; connection = cid; space = sid
         showSpaces = unsafeBitCast(s, to: Spaces.self); hideSpaces = unsafeBitCast(hide, to: Spaces.self)
-        adopt = unsafeBitCast(a, to: Adopt.self); destroy = cleanup
+        adopt = unsafeBitCast(a, to: Adopt.self); copySpaces = unsafeBitCast(query, to: CopySpaces.self); destroy = cleanup
+        Self.initializationError = "Ready; space level verified as 400"
     }
     func show(windows: [Int]) -> Bool {
         guard !windows.isEmpty, LockSessionState.current.shouldPresent else { hide(); return false }
-        let adoption = adopt(connection, space, windows.map { NSNumber(value: $0) } as CFArray, 7)
-        guard adoption == 0 else { lastError = "Adopt windows: \(adoption)"; hide(); return false }
-        let shown = showSpaces(connection, [NSNumber(value: space)] as CFArray)
-        guard shown == 0 else { lastError = "Show space: \(shown)"; hide(); return false }
+        let ids = windows.map { NSNumber(value: $0) } as CFArray
+        adopt(connection, space, ids, 7)
+        // Verify each window individually; a union query could hide a partial failure.
+        for window in windows {
+            guard let result = copySpaces(connection, 7, [NSNumber(value: window)] as CFArray)?.takeRetainedValue(),
+                  let memberships = result as? [NSNumber], memberships.contains(where: { $0.uint64Value == space }) else {
+                lastError = "Window \(window) was not associated with lock space \(space)"
+                hide(); return false
+            }
+        }
+        showSpaces(connection, [NSNumber(value: space)] as CFArray)
         lastError = ""; return true
     }
-    func hide() { _ = hideSpaces(connection, [NSNumber(value: space)] as CFArray) }
-    deinit { hide(); _ = destroy(connection, space); dlclose(handle) }
+    func hide() { hideSpaces(connection, [NSNumber(value: space)] as CFArray) }
+    deinit { hide(); destroy?(connection, space); dlclose(handle) }
 }

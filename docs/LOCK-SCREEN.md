@@ -26,3 +26,13 @@ API privada, sem garantia de estabilidade entre versões. Não substitui loginwi
 ## Teste manual
 
 Ativar nas opções gerais; bloquear com Control+Command+Q e observar por pelo menos 10 segundos. Testar play/pause, avanço e letras. Apagar/acordar a tela mantendo o bloqueio. Desbloquear e verificar remoção. Testar senha e Touch ID e troca de usuário. Se falhar, copiar diagnóstico nos ajustes.
+
+## Correção 0.36.3
+
+O diagnóstico no Ventura 13.7.8 mostrou falha na inicialização antes da apresentação. Corrigidos os IDs de Space para UInt64, incluídos aliases CGS, e substituída a interpretação do retorno dos setters privados por leitura independente de nível (400) e associação de cada janela ao Space. Símbolo de destruição é opcional; janelas e Space são ocultados explicitamente no desbloqueio. O diagnóstico agora distingue dlopen, símbolo ausente, conexão, criação e nível lido. Não é possível concluir a causa exata a partir do diagnóstico genérico de 0.36.2.
+
+Referências de assinaturas:
+- https://github.com/NUIKit/CGSInternal/blob/master/CGSSpace.h
+- https://github.com/asmagill/hs._asm.undocumented.spaces/blob/master/CGSSpace.h
+
+Setters publicados nesses headers usam void, ao contrário das declarações usadas no exemplo SkyLightWindow. A leitura independente evita usar um retorno indefinido como condição para abortar.

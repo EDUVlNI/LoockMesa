@@ -4,6 +4,14 @@ import AppKit
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
         _ = NSApplication.shared
+        // Exercise real symbol resolution, 64-bit creation and level readback.
+        // This creates and destroys a hidden space without presenting any window.
+        do {
+            let backend = LockScreenSpace()
+            precondition(backend != nil, "SkyLight initialization failed: \(LockScreenSpace.initializationError)")
+            backend?.hide()
+        }
+        print("PASS: SkyLight backend initializes and verifies level without displaying windows")
         let lockPanel = LockWidgetPanel(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         precondition(!lockPanel.canBecomeKey && !lockPanel.canBecomeMain, "Lock panels must never take password keyboard focus")
         precondition(LockWidgetPanel.lockLevel.rawValue > Int(CGWindowLevelForKey(.screenSaverWindow)))
