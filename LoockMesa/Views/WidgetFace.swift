@@ -347,7 +347,7 @@ struct WeatherVariantContent: View {
             } else {
                 ForEach(Array(data.days.prefix(small ? 4 : 7).enumerated()), id: \.offset) { _, day in
                     HStack(spacing: small ? 6 : 12) {
-                        Text(day.label).frame(width: small ? 30 : 48, alignment: .leading)
+                        Text(day.label).lineLimit(1).minimumScaleFactor(0.75).frame(width: small ? 30 : 52, alignment: .leading)
                         Image(systemName: WeatherSnapshot.symbol(day.code)).symbolRenderingMode(.multicolor).frame(width: small ? 15 : 22)
                         Spacer(minLength: 0)
                         Text("\(day.low)°").opacity(0.65).frame(width: small ? 22 : 28)
