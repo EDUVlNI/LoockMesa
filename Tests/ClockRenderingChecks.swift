@@ -4,6 +4,10 @@ import AppKit
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
         _ = NSApplication.shared
+        let lockPanel = LockWidgetPanel(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        precondition(!lockPanel.canBecomeKey && !lockPanel.canBecomeMain, "Lock panels must never take password keyboard focus")
+        precondition(LockWidgetPanel.lockLevel.rawValue > Int(CGWindowLevelForKey(.screenSaverWindow)))
+        lockPanel.isReleasedWhenClosed = false; lockPanel.close()
         precondition(LockSessionState(screenLocked: true, ownConsole: true).shouldPresent)
         precondition(!LockSessionState(screenLocked: false, ownConsole: true).shouldPresent)
         precondition(!LockSessionState(screenLocked: true, ownConsole: false).shouldPresent)

@@ -21,6 +21,9 @@ extension Notification.Name {
     private var previewing = false
     private var sleeping = false
     private var monitor: Timer?
+    private var repairTask: Task<Void, Never>?
+    private var repairGeneration = 0
+    private var lastMonitorRead = Date.distantPast
     private var suppressUntil = Date.distantPast
     private var lastReassert = Date.distantPast
     private var presenter: LockScreenSpace?
@@ -46,22 +49,30 @@ extension Notification.Name {
     func synchronize(rebuild: Bool = false) {
         if previewing && rebuild { refresh(); activityChanged?() }
         guard store.preferences.lockScreenEnabled == true || locked else { return }
+        // Keep idle polling inexpensive; notifications still handle transitions immediately.
+        if !rebuild && !locked && Date().timeIntervalSince(lastMonitorRead) < 2 { return }
+        lastMonitorRead = Date()
         guard Date() >= suppressUntil else { return }
         let next = LockSessionState.current
         let value = next.shouldPresent
         let changed = locked != value
         if changed { previewTask?.cancel(); previewing = false; locked = value }
-        if changed || rebuild { refresh(); activityChanged?() }
-        if locked && needsServices && Date().timeIntervalSince(lastReassert) >= 1 {
+        if changed || rebuild {
+            cancelRepairs(); refresh(); activityChanged?()
+            if value && !sleeping { scheduleRepairs() }
+        }
+        if locked && needsServices && Date().timeIntervalSince(lastReassert) >= 5 {
             if panels.isEmpty { refresh() }
             lastReassert = Date()
             // Loginwindow may replace its visible spaces after display wake.
-            if presenter?.show(windows: panels.map { $0.windowNumber }) != true { removePanels() }
+            repairPresentation()
         }
     }
     func setLocked(_ value: Bool) {
         // Read the session instead of trusting ordering of distributed notifications.
         if !value {
+            cancelRepairs()
+            LockScreenDiagnostics.shared.record("Oculto após desbloquear")
             suppressUntil = Date().addingTimeInterval(1)
             locked = false; previewing = false; previewTask?.cancel()
             removePanels(); activityChanged?(); return
@@ -71,7 +82,8 @@ extension Notification.Name {
     }
     func setSleeping(_ value: Bool) {
         sleeping = value
-        if value { removePanels() } else { synchronize(rebuild: true) }
+        cancelRepairs()
+        if value { removePanels(); LockScreenDiagnostics.shared.record("Pausado enquanto a tela está apagada") } else { synchronize(rebuild: true) }
         activityChanged?()
     }
     func preview() {
@@ -82,7 +94,37 @@ extension Notification.Name {
             self?.previewing = false; self?.refresh(); self?.activityChanged?()
         }
     }
-    func dismiss() { monitor?.invalidate(); monitor = nil; previewTask?.cancel(); previewTask = nil; previewing = false; locked = false; removePanels() }
+    func dismiss() { cancelRepairs(); monitor?.invalidate(); monitor = nil; previewTask?.cancel(); previewTask = nil; previewing = false; locked = false; removePanels() }
+    private func cancelRepairs() {
+        repairGeneration += 1; repairTask?.cancel(); repairTask = nil
+    }
+    private func scheduleRepairs() {
+        guard locked && needsServices && !previewing else { return }
+        let generation = repairGeneration
+        repairTask = Task { [weak self] in
+            // Bounded retries cover loginwindow rebuilding its spaces after lock/wake.
+            for delay in [UInt64(120_000_000), 230_000_000, 400_000_000, 750_000_000, 1_500_000_000] {
+                do { try await Task.sleep(nanoseconds: delay) } catch { return }
+                guard let self, self.repairGeneration == generation, self.locked,
+                      self.needsServices, !self.previewing, LockSessionState.current.shouldPresent else { return }
+                if self.panels.isEmpty { self.refresh() }
+                self.repairPresentation()
+            }
+        }
+    }
+    private func repairPresentation() {
+        guard locked && needsServices && !previewing && LockSessionState.current.shouldPresent else {
+            removePanels(); return
+        }
+        guard !panels.isEmpty else { return }
+        if presenter?.show(windows: panels.map { $0.windowNumber }) == true {
+            panels.forEach { $0.orderFrontRegardless() }
+            LockScreenDiagnostics.shared.record("Painéis enviados à tela de bloqueio")
+        } else {
+            LockScreenDiagnostics.shared.record("Não foi possível exibir os painéis", detail: presenter?.lastError ?? "Presenter unavailable")
+            removePanels()
+        }
+    }
     private func removePanels() { presenter?.hide(); panels.forEach { $0.alphaValue = 0; $0.orderOut(nil); $0.contentView = nil; $0.close() }; panels.removeAll() }
     private func refresh() {
         removePanels()
@@ -93,7 +135,7 @@ extension Notification.Name {
         if !previewing {
             guard LockSessionState.current.shouldPresent else { return }
             if presenter == nil { presenter = LockScreenSpace() }
-            guard presenter != nil else { log.error("Lock screen presentation unavailable"); return }
+            guard presenter != nil else { log.error("Lock screen presentation unavailable"); LockScreenDiagnostics.shared.record("Recurso indisponível neste macOS", detail: "SkyLight symbols or space initialization failed"); return }
         }
         let p = store.preferences
         let frames = LockScreenLayout.frames(screen: screen.frame, infoOffset: p.lockInfoOffset ?? 0, playerOffset: p.lockPlayerOffset ?? 0)
@@ -109,17 +151,21 @@ extension Notification.Name {
     private func addPanel<V: View>(frame: CGRect, content: V, interactive: Bool) {
         let panel = LockWidgetPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isReleasedWhenClosed = false; panel.isOpaque = false; panel.backgroundColor = .clear
+        panel.canHide = false
         panel.hasShadow = false; panel.hidesOnDeactivate = false; panel.becomesKeyOnlyIfNeeded = true
         panel.canBecomeVisibleWithoutLogin = !previewing
-        panel.level = previewing ? .floating : NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.screenSaverWindow)) + 1)
+        panel.level = previewing ? .floating : LockWidgetPanel.lockLevel
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
         panel.ignoresMouseEvents = !interactive; panel.animationBehavior = .none
-        panel.contentView = NSHostingView(rootView: content)
+        panel.contentView = LockHostingView(rootView: content)
         panel.alphaValue = 0
         if !previewing {
             // Adopt before ordering, so no frame can leak into the ordinary desktop space.
             guard LockSessionState.current.shouldPresent,
-                  presenter?.show(windows: [panel.windowNumber]) == true else { panel.close(); return }
+                  presenter?.show(windows: [panel.windowNumber]) == true else {
+                LockScreenDiagnostics.shared.record("Falha ao posicionar na tela de bloqueio", detail: presenter?.lastError ?? "Session changed")
+                panel.close(); return
+            }
         }
         panel.orderFrontRegardless(); panels.append(panel)
         NSAnimationContext.runAnimationGroup { context in
@@ -128,9 +174,43 @@ extension Notification.Name {
         }
     }
 }
-private final class LockWidgetPanel: NSPanel {
+final class LockWidgetPanel: NSPanel {
+    // Match SkyLightWindow's topmost window level, in addition to space level 400.
+    static let lockLevel = NSWindow.Level(rawValue: Int(Int32.max - 2))
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+private final class LockHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+@MainActor final class LockScreenDiagnostics: ObservableObject {
+    static let shared = LockScreenDiagnostics()
+    @Published private(set) var status = "Aguardando teste na tela bloqueada"
+    private var lastDetail = ""
+    private var lastFailure = "Nenhuma falha registrada"
+    private var lastUpdate = Date()
+    func record(_ value: String, detail: String = "") {
+        guard status != value || lastDetail != detail else { return }
+        status = value; lastDetail = detail; lastUpdate = Date()
+        if !detail.isEmpty { lastFailure = "\(value): \(detail)" }
+    }
+    func copyReport() {
+        let session = LockSessionState.current
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        let report = "LoockMesa \(version)\n\(ProcessInfo.processInfo.operatingSystemVersionString)\nEstado: \(status)\nDetalhe: \(lastDetail)\nÚltima falha: \(lastFailure)\nAtualizado: \(lastUpdate)\nBloqueada: \(session.screenLocked)\nSessão própria: \(session.ownConsole)"
+        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(report, forType: .string)
+    }
+}
+struct LockScreenDiagnosticView: View {
+    @ObservedObject private var diagnostics = LockScreenDiagnostics.shared
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(diagnostics.status).font(.caption).foregroundStyle(.secondary)
+            Button("Copiar diagnóstico do último teste") { diagnostics.copyReport() }.font(.caption)
+        }
+    }
 }
 
 enum LockScreenLayout {
@@ -216,6 +296,7 @@ private final class LockScreenSpace {
     private let hideSpaces: Spaces
     private let adopt: Adopt
     private let destroy: Destroy
+    private(set) var lastError = ""
     init?() {
         guard let h = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", RTLD_NOW | RTLD_LOCAL) else { return nil }
         guard let c = dlsym(h, "SLSMainConnectionID"), let n = dlsym(h, "SLSSpaceCreate"),
@@ -235,9 +316,11 @@ private final class LockScreenSpace {
     }
     func show(windows: [Int]) -> Bool {
         guard !windows.isEmpty, LockSessionState.current.shouldPresent else { hide(); return false }
-        guard adopt(connection, space, windows.map { NSNumber(value: $0) } as CFArray, 7) == 0 else { hide(); return false }
-        guard showSpaces(connection, [NSNumber(value: space)] as CFArray) == 0 else { hide(); return false }
-        return true
+        let adoption = adopt(connection, space, windows.map { NSNumber(value: $0) } as CFArray, 7)
+        guard adoption == 0 else { lastError = "Adopt windows: \(adoption)"; hide(); return false }
+        let shown = showSpaces(connection, [NSNumber(value: space)] as CFArray)
+        guard shown == 0 else { lastError = "Show space: \(shown)"; hide(); return false }
+        lastError = ""; return true
     }
     func hide() { _ = hideSpaces(connection, [NSNumber(value: space)] as CFArray) }
     deinit { hide(); _ = destroy(connection, space); dlclose(handle) }

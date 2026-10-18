@@ -147,6 +147,7 @@ struct GalleryView: View {
                 settingToggle("Player somente durante a reprodução", value: Binding(get: { store.preferences.lockPlayerOnlyPlaying == true }, set: { store.preferences.lockPlayerOnlyPlaying = $0 }))
                 Text("Altura do player")
                 Slider(value: Binding(get: { store.preferences.lockPlayerOffset ?? 0 }, set: { store.preferences.lockPlayerOffset = $0 }), in: -60...60)
+                LockScreenDiagnosticView()
                 Button("Visualizar posições por 12 segundos") { NotificationCenter.default.post(name: .loockPreviewLockScreen, object: nil) }
                 Text("A prévia não bloqueia o Mac. Para testar de verdade, ative a opção e use Control + Command + Q. Funciona após entrar na sua conta; senha e Touch ID continuam sendo do macOS.").font(.caption).foregroundStyle(.secondary)
             }

@@ -22,11 +22,11 @@ jobs:
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LoockMesa-0.36.1-Intel
-          path: dist/LoockMesa-0.36.1-Intel.zip
+          name: LoockMesa-0.36.2-Intel
+          path: dist/LoockMesa-0.36.2-Intel.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: widget-previews-0361
+          name: widget-previews-0362
           path: dist/previews/*.png
           if-no-files-found: error
