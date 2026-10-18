@@ -72,12 +72,18 @@ struct BatteryRing: View {
                     .font(.system(size: dimension * 0.39, weight: .regular)).foregroundColor(ink)
             }
             if charging {
-                ChargingBolt()
-                    .fill(accent)
-                    .overlay(ChargingBolt().stroke(CardPalette.base(light: light), style: StrokeStyle(lineWidth: dimension * 0.022, lineJoin: .round)))
-                    .frame(width: dimension * 0.17, height: dimension * 0.28)
-                    .offset(y: -dimension * 0.49)
-                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.65, anchor: .top)))
+                ZStack {
+                    ForEach(0..<12, id: \.self) { step in
+                        Image(systemName: "bolt.fill")
+                            .foregroundStyle(CardPalette.base(light: light))
+                            .offset(x: cos(Double(step) * .pi / 6) * dimension * 0.018,
+                                    y: sin(Double(step) * .pi / 6) * dimension * 0.018)
+                    }
+                    Image(systemName: "bolt.fill").foregroundStyle(accent)
+                }
+                .font(.system(size: dimension * 0.27, weight: .regular))
+                .offset(y: -dimension * 0.50)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.65, anchor: .top)))
                 .accessibilityHidden(true)
             }
         }.frame(width: dimension, height: dimension)
@@ -86,16 +92,6 @@ struct BatteryRing: View {
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: lowPower)
     }
 }
-private struct ChargingBolt: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let points: [CGPoint] = [CGPoint(x: 0.61, y: 0), CGPoint(x: 0.06, y: 0.56), CGPoint(x: 0.43, y: 0.56), CGPoint(x: 0.31, y: 1), CGPoint(x: 0.94, y: 0.39), CGPoint(x: 0.56, y: 0.39)]
-        path.addLines(points.map { CGPoint(x: rect.minX + $0.x * rect.width, y: rect.minY + $0.y * rect.height) })
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Uses the compositor's native backdrop, with no wallpaper capture or polling.
 /// A transparent desktop panel lets behindWindow sample the wallpaper underneath.
 private struct FrostIntensityKey: EnvironmentKey { static let defaultValue: Double = 0.7 }

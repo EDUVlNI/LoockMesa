@@ -142,6 +142,18 @@ struct Checks {
         assert(enriched.uv == 3 && enriched.precipitation == 25)
         assert(enriched.localTime(enriched.sunrise) == "06:00" && enriched.localTime(enriched.nextSunrise) == "06:01")
 
+        assert(LyricsDocument.presentationTime(12, playing: false) == 12)
+        assert(abs(LyricsDocument.presentationTime(12, playing: true) - 12.18) < 0.001)
+        assert(WeatherSnapshot.symbol(55) == "cloud.drizzle.fill")
+        assert(WeatherSnapshot.symbol(65) == "cloud.heavyrain.fill")
+        var eventFixture = extended
+        var eventDays = extendedDays
+        eventDays["sunset"] = ["2026-09-22T14:30"]
+        eventFixture["daily"] = eventDays
+        let eventForecast = try JSONDecoder().decode(ForecastResponse.self, from: JSONSerialization.data(withJSONObject: eventFixture)).snapshot()
+        assert(eventForecast.hours.map(\.label) == ["14", "14:30", "15"])
+        assert(eventForecast.hours[1].symbol == "sunset.fill" && eventForecast.hours[1].temperature == 22)
+        assert(eventForecast.hours[0].eventSymbol == nil)
         let empty = Data(#"{"current":{"time":"2026-09-22T14:15","temperature_2m":21,"weather_code":2},"hourly":{"time":[],"temperature_2m":[],"weather_code":[]},"daily":{"time":[],"temperature_2m_min":[],"temperature_2m_max":[],"weather_code":[]}}"#.utf8)
         do { _ = try JSONDecoder().decode(ForecastResponse.self, from: empty).snapshot(); assertionFailure("Empty daily must be rejected") } catch {}
         let nightData = Data(String(data: data, encoding: .utf8)!.replacingOccurrences(of: "\"weather_code\":2}", with: "\"weather_code\":45,\"is_day\":0}").utf8)

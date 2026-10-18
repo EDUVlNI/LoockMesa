@@ -49,9 +49,12 @@ import AppKit
         let resumed = try capture(analogHost, "clock029-resumed.png")
         precondition(resumed != pausedB && resumed != recovering, "Rendered clock must recover and continue ticking")
         print("PASS: actual NSHostingView renders analog movement, digital marker movement, outside-desktop freeze and animated recovery")
-        let weather = WeatherService(preview: .demo)
+        var weatherFixture = WeatherSnapshot.demo
+        weatherFixture.days += [ForecastDay(label: "Sex.", low: 16, high: 24, code: 61), ForecastDay(label: "Sáb.", low: 13, high: 21, code: 3), ForecastDay(label: "Dom.", low: 14, high: 22, code: 2)]
+        weatherFixture.hours = [ForecastHour(label: "14", temperature: 21, code: 2), ForecastHour(label: "15", temperature: 20, code: 2), ForecastHour(label: "16", temperature: 20, code: 2), ForecastHour(label: "17", temperature: 19, code: 2), ForecastHour(label: "18", temperature: 18, code: 2), ForecastHour(label: "18:24", temperature: 17, code: 0, eventSymbol: "sunset.fill")]
+        let weather = WeatherService(preview: weatherFixture)
         var previewWindows: [NSWindow] = []
-        for variant in ["daily", "details", "sun"] {
+        for variant in ["standard", "daily", "details", "sun"] {
             for size in WidgetSize.allCases {
                 let host = NSHostingView(rootView: WeatherWidget(size: size, city: "Curitiba", service: weather, variant: variant)
                     .frame(width: size.dimensions.width, height: size.dimensions.height)
@@ -75,6 +78,19 @@ import AppKit
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
             _ = try capture(host, "battery-\(charging).png")
         }
+        let artwork = NSImage(size: NSSize(width: 32, height: 32))
+        artwork.lockFocus(); NSColor.systemPurple.setFill(); NSRect(x: 0, y: 0, width: 32, height: 32).fill(); artwork.unlockFocus()
+        let media = MusicService(api: MediaSourceAPI(pid: { _, done in done(42) }, info: { _, done in
+            done(["kMRMediaRemoteNowPlayingInfoTitle": "Cores do álbum", "kMRMediaRemoteNowPlayingInfoArtist": "Prévia visual", "kMRMediaRemoteNowPlayingInfoArtworkData": artwork.tiffRepresentation!, "kMRMediaRemoteNowPlayingInfoDuration": 200, "kMRMediaRemoteNowPlayingInfoElapsedTime": 80] as CFDictionary)
+        }, playing: { _, done in done(false) }, bundle: { _ in "com.spotify.client" }))
+        media.configure(provider: .automatic, enabled: true)
+        let musicHost = NSHostingView(rootView: LyricsWidget(size: .medium, media: media, appearance: .original, frosted: false).clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous)))
+        musicHost.frame = CGRect(x: 0, y: 0, width: 344, height: 164)
+        let musicWindow = NSWindow(contentRect: musicHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        musicWindow.contentView = musicHost; previewWindows.append(musicWindow)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        _ = try capture(musicHost, "music-matte.png")
+        media.stop()
         withExtendedLifetime((analogWindow, digitalWindow, previewWindows)) {}
 
     }

@@ -9,6 +9,10 @@ struct LyricsDocument: Equatable {
     var lines: [LyricLine] = []
     var plain = ""
     var available: Bool { !lines.isEmpty || !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Start the visual transition slightly before the lyric timestamp so emphasis lands on the beat.
+    static func presentationTime(_ elapsed: TimeInterval, playing: Bool) -> TimeInterval {
+        elapsed + (playing ? 0.18 : 0)
+    }
     func activeIndex(at time: TimeInterval) -> Int? {
         guard time.isFinite else { return nil }
         return lines.lastIndex { $0.time <= time }

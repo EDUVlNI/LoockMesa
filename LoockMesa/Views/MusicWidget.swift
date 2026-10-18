@@ -16,7 +16,7 @@ struct MusicWidget: View {
             HarmonizedCardBackground(light: light, frosted: forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted))
             if (appearance ?? store.preferences.appearanceStyle(.music)) == .original {
                 AlbumColorGradient(media: media)
-                    .opacity((forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted)) ? 0.62 : 0.94)
+                    .opacity((forcedFrosted ?? (store.preferences.surfaceStyle(.music) == .frosted)) ? 0.80 : 1.0)
                     .allowsHitTesting(false)
             }
             if size != .small {
@@ -219,8 +219,8 @@ struct MusicOptions: View {
 struct AlbumColorGradient: View {
     @ObservedObject var media: MusicService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var colors: [Color] = [.init(red: 0.24, green: 0.17, blue: 0.32),
-        .init(red: 0.13, green: 0.29, blue: 0.26), .init(red: 0.25, green: 0.23, blue: 0.36)]
+    @State private var colors: [Color] = [.init(red: 0.43, green: 0.23, blue: 0.61),
+        .init(red: 0.16, green: 0.48, blue: 0.44), .init(red: 0.53, green: 0.31, blue: 0.57)]
     @State private var centers: [UnitPoint] = [.topLeading, .bottomTrailing, .topTrailing]
     @State private var lastIdentity: String?
     @State private var sampledArtwork: NSImage?
@@ -231,9 +231,12 @@ struct AlbumColorGradient: View {
                 ForEach(0..<3, id: \.self) { index in
                     RadialGradient(colors: [colors[index], colors[index].opacity(0)],
                         center: centers[index], startRadius: 0,
-                        endRadius: max(geometry.size.width, geometry.size.height) * 0.95)
+                        endRadius: max(geometry.size.width, geometry.size.height) * 0.82)
                 }
-                Color.black.opacity(0.12)
+                // Broad pigment-like gradients: bright color without glossy highlights.
+                LinearGradient(colors: [.white.opacity(0.035), .clear, .black.opacity(0.20)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Color(white: 0.45).opacity(0.065)
+
             }
         }
         .clipped()
@@ -279,9 +282,9 @@ struct AlbumColorGradient: View {
                 }
             }
         }
-        let sat = min(0.70, max(0.32, saturation))
-        return [Color(hue: Double(hue), saturation: Double(sat), brightness: 0.40),
-                Color(hue: Double((hue + 0.5).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.8), brightness: 0.35),
-                Color(hue: Double((hue + 0.08).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.75), brightness: 0.49)]
+        let sat = min(0.82, max(0.52, saturation * 1.08))
+        return [Color(hue: Double(hue), saturation: Double(sat), brightness: 0.61),
+                Color(hue: Double((hue + 0.5).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.90), brightness: 0.53),
+                Color(hue: Double((hue + 0.08).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.85), brightness: 0.69)]
     }
 }

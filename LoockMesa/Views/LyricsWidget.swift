@@ -27,9 +27,9 @@ struct LyricsWidget: View {
         ZStack(alignment: .topLeading) {
             HarmonizedCardBackground(light: light, frosted: frosted)
             AlbumColorGradient(media: media)
-                .opacity(appearance == .original ? (frosted ? 0.62 : 0.94) : 0.12)
+                .opacity(appearance == .original ? (frosted ? 0.80 : 1.0) : 0.12)
                 .allowsHitTesting(false)
-            TimelineView(.animation(minimumInterval: 0.1, paused: preview || !media.isPlaying)) { timeline in
+            TimelineView(.animation(minimumInterval: lyrics.showingLyrics ? 1.0 / 30.0 : 0.1, paused: preview || !media.isPlaying)) { timeline in
                 let elapsed = media.scrubPosition ?? media.position.at(timeline.date)
                 ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
@@ -100,7 +100,7 @@ struct LyricsWidget: View {
     }
     @ViewBuilder private func lyricContent(elapsed: TimeInterval) -> some View {
         if !lyrics.document.lines.isEmpty && media.position.known {
-            let active = lyrics.document.activeIndex(at: elapsed) ?? -1
+            let active = lyrics.document.activeIndex(at: LyricsDocument.presentationTime(elapsed, playing: media.isPlaying && media.scrubPosition == nil)) ?? -1
             let rowHeight: CGFloat = size == .large ? 57 : 31
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
@@ -119,7 +119,7 @@ struct LyricsWidget: View {
                                       y: geometry.size.height / 2 + CGFloat(line.id - max(0, active)) * rowHeight)
                     }
                 }.frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                    .animation(animation, value: active)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.20), value: active)
             }
         } else {
             ScrollView {
