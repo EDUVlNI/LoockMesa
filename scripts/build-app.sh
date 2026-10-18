@@ -16,5 +16,7 @@ test -x "$app_path/Contents/MacOS/LoockMesa"
 /usr/bin/codesign --force --sign - --entitlements LoockMesa/LoockMesa.entitlements "$app_path"
 /usr/bin/codesign --verify --strict "$app_path"
 mkdir -p dist
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" dist/LoockMesa-0.35.0-Intel.zip
-echo 'Aplicativo compilado: dist/LoockMesa-0.35.0-Intel.zip'
+app_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")
+archive_path="dist/LoockMesa-${app_version}-Intel.zip"
+/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app_path" "$archive_path"
+echo "Aplicativo compilado: $archive_path"
