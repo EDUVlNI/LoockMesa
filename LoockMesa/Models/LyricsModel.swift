@@ -15,7 +15,12 @@ struct LyricsDocument: Equatable {
     }
     func activeIndex(at time: TimeInterval) -> Int? {
         guard time.isFinite else { return nil }
-        return lines.lastIndex { $0.time <= time }
+        var lower = 0, upper = lines.count
+        while lower < upper {
+            let middle = (lower + upper) / 2
+            if lines[middle].time <= time { lower = middle + 1 } else { upper = middle }
+        }
+        return lower > 0 ? lower - 1 : nil
     }
     static func parse(synced: String?, plain: String?) -> Self {
         let regex = try! NSRegularExpression(pattern: #"\[(\d+):(\d{2}(?:\.\d{1,3})?)\]"#)
@@ -125,5 +130,16 @@ struct PlaybackPosition {
     func at(_ date: Date) -> TimeInterval {
         let value = max(0, elapsed + max(0, date.timeIntervalSince(sampledAt)) * rate)
         return duration > 0 ? min(duration, value) : value
+    }
+}
+
+/// Reject slow/stale native samples instead of moving the lyric clock backwards.
+extension PlaybackPosition {
+    static func nativeSample(elapsed: Double, duration: Double, playing: Bool, started: Date, ended: Date) -> PlaybackPosition? {
+        let latency = ended.timeIntervalSince(started)
+        guard elapsed.isFinite, elapsed >= 0, duration.isFinite, duration > 0,
+              latency >= 0, latency < 1 else { return nil }
+        return PlaybackPosition(elapsed: min(elapsed, duration), duration: duration,
+            sampledAt: started.addingTimeInterval(latency / 2), rate: playing ? 1 : 0, known: true)
     }
 }

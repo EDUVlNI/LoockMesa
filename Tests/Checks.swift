@@ -32,6 +32,16 @@ struct Checks {
         assert(position.at(epoch.addingTimeInterval(50)) == 20)
         var pausedPosition = position; pausedPosition.rate = 0
         assert(pausedPosition.at(epoch.addingTimeInterval(3)) == 12)
+        let sampleEnd = epoch.addingTimeInterval(0.2)
+        let direct = PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: true, started: epoch, ended: sampleEnd)!
+        assert(abs(direct.at(sampleEnd) - 12.1) < 0.001)
+        assert(PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: false, started: epoch, ended: sampleEnd)!.at(sampleEnd) == 12)
+        assert(PlaybackPosition.nativeSample(elapsed: .nan, duration: 20, playing: true, started: epoch, ended: sampleEnd) == nil)
+        assert(PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: true, started: epoch, ended: epoch.addingTimeInterval(2)) == nil)
+        for instant in stride(from: -1.0, through: 9.0, by: 0.05) {
+            assert(lyric.activeIndex(at: instant) == lyric.lines.lastIndex(where: { $0.time <= instant }))
+        }
+        print("PASS: native playback latency, paused clock, invalid/stale samples and lyric search boundaries")
         var oldLayout = DeskPreferences()
         oldLayout.widgets.removeAll { $0.kind == .musicLyrics }
         let oldMusic = oldLayout.widgets.first { $0.kind == .music }!

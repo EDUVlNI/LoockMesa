@@ -29,7 +29,7 @@ struct LyricsWidget: View {
             AlbumColorGradient(media: media)
                 .opacity(appearance == .original ? (frosted ? 0.80 : 1.0) : 0.12)
                 .allowsHitTesting(false)
-            TimelineView(.animation(minimumInterval: lyrics.showingLyrics ? 1.0 / 30.0 : 0.1, paused: preview || !media.isPlaying)) { timeline in
+            TimelineView(.animation(minimumInterval: lyrics.showingLyrics ? 1.0 / 20.0 : 0.1, paused: preview || !media.isPlaying)) { timeline in
                 let elapsed = media.scrubPosition ?? media.position.at(timeline.date)
                 ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
@@ -105,7 +105,7 @@ struct LyricsWidget: View {
             GeometryReader { geometry in
                 ZStack(alignment: .topLeading) {
                     // Keep a fixed local window of rows; SwiftUI interpolates their offsets when the active index changes.
-                    ForEach(lyrics.document.lines.filter { abs($0.id - max(0, active)) <= 3 }) { line in
+                    ForEach(lyrics.document.lines[max(0, max(0, active) - 3)..<min(lyrics.document.lines.count, max(0, active) + 4)]) { line in
                         Text(line.text.isEmpty ? "♪" : line.text)
                             .font(.system(size: size == .large ? 20 : size == .small ? 12 : 15, weight: .semibold))
                             .lineLimit(2).minimumScaleFactor(0.85)
@@ -138,7 +138,7 @@ struct LyricsWidget: View {
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.18))
                     Capsule().fill((light ? Color.black : Color.white).opacity(0.75))
                         .frame(width: proxy.size.width * fraction)
-                }.frame(height: expanded ? 6 : 2)
+                }.frame(height: expanded ? 6 : 3)
                     .frame(height: 8)
                     .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: expanded)
             }.frame(height: 8)
@@ -225,7 +225,7 @@ struct PlaybackMorphShape: Shape {
                 let point = CGPoint(x: rect.minX + (a.x + (b.x - a.x) * t) * rect.width,
                                     y: rect.minY + (a.y + (b.y - a.y) * t) * rect.height)
                 let seam = half == 0 ? (index == 1 || index == 2) : (index == 0 || index == 3)
-                let radius = min(rect.width, rect.height) * 0.09 * (seam ? t : 1)
+                let radius = min(rect.width, rect.height) * 0.16 * (seam ? t : 1)
                 if vertices.last?.0 != point { vertices.append((point, radius)) }
             }
             for index in vertices.indices {

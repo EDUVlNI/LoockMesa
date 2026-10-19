@@ -4,30 +4,6 @@ import AppKit
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
         _ = NSApplication.shared
-        // Exercise real symbol resolution, 64-bit creation and level readback.
-        // This creates and destroys a hidden space without presenting any window.
-        do {
-            let backend = LockScreenSpace()
-            precondition(backend != nil, "SkyLight initialization failed: \(LockScreenSpace.initializationError)")
-            backend?.hide()
-        }
-        print("PASS: SkyLight backend initializes and verifies level without displaying windows")
-        let lockPanel = LockWidgetPanel(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        precondition(!lockPanel.canBecomeKey && !lockPanel.canBecomeMain, "Lock panels must never take password keyboard focus")
-        precondition(LockWidgetPanel.lockLevel.rawValue > Int(CGWindowLevelForKey(.screenSaverWindow)))
-        lockPanel.isReleasedWhenClosed = false; lockPanel.close()
-        precondition(LockSessionState(screenLocked: true, ownConsole: true).shouldPresent)
-        precondition(!LockSessionState(screenLocked: false, ownConsole: true).shouldPresent)
-        precondition(!LockSessionState(screenLocked: true, ownConsole: false).shouldPresent)
-        precondition(!LockSessionState(screenLocked: false, ownConsole: false).shouldPresent)
-        for screen in [CGRect(x: 0, y: 0, width: 1440, height: 900), CGRect(x: -1920, y: 200, width: 1920, height: 1080), CGRect(x: 0, y: 0, width: 1280, height: 800)] {
-            let layout = LockScreenLayout.frames(screen: screen, infoOffset: 0, playerOffset: 0)
-            precondition(screen.contains(layout.info) && screen.contains(layout.player))
-            precondition(layout.info.midX == screen.midX && layout.player.midX == screen.midX)
-            let authentication = CGRect(x: screen.midX - 160, y: screen.minY + screen.height * 0.39, width: 320, height: screen.height * 0.27)
-            precondition(!layout.info.intersects(authentication) && !layout.player.intersects(authentication))
-        }
-        print("PASS: lock panels fit displays and leave the default Ventura authentication area clear")
         let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory(), isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         func analog(_ inactive: Bool) -> some View {

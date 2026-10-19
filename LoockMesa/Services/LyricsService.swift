@@ -6,7 +6,12 @@ final class LyricsService: ObservableObject {
     static let shared = LyricsService(media: .shared)
     @Published private(set) var document = LyricsDocument()
     @Published private(set) var loading = false
-    @Published var showingLyrics = false
+    @Published var showingLyrics = false {
+        didSet {
+            guard showingLyrics != oldValue else { return }
+            media.synchronizeSpotifyClock(enabled: enabled && showingLyrics)
+        }
+    }
     private let media: MusicService
     private let session: URLSession
     private var subscription: AnyCancellable?
@@ -25,6 +30,7 @@ final class LyricsService: ObservableObject {
     func configure(enabled: Bool) {
         guard self.enabled != enabled else { return }
         self.enabled = enabled
+        media.synchronizeSpotifyClock(enabled: enabled && showingLyrics)
         refresh()
     }
     func toggle() { guard document.available else { return }; showingLyrics.toggle() }
