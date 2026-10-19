@@ -74,6 +74,10 @@ struct IntegrationSettingsView: View {
             Text("Indicadores de volume, brilho da tela e iluminação do teclado.").foregroundStyle(.secondary)
             card("Controles") {
                 Toggle("Ativar indicadores de volume e brilho", isOn: $coordinator.hudEnabled)
+                Picker("Posição das barras", selection: $hud.position) {
+                    ForEach(HUDPosition.allCases) { position in Text(position.rawValue).tag(position) }
+                }.pickerStyle(.segmented)
+                Text("No centro, as barras ficam na horizontal e aparecem pela parte inferior da tela.").font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Testar volume") { hud.showVolume(0.65) }
                     Button("Testar tela") { hud.showDisplayBrightness(0.65) }

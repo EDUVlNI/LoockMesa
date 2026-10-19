@@ -11,6 +11,27 @@ enum HUDStyle: String, CaseIterable, Identifiable {
     var id: String { self.rawValue }
 }
 
+enum HUDPosition: String, CaseIterable, Identifiable {
+    case left = "Esquerda", right = "Direita", center = "Centro"
+    var id: String { rawValue }
+    var horizontal: Bool { self == .center }
+    var alignment: Alignment { self == .left ? .leading : self == .right ? .trailing : .bottom }
+    func offset(visible: Bool) -> CGSize {
+        switch self {
+        case .left: return CGSize(width: visible ? 16 : -80, height: 0)
+        case .right: return CGSize(width: visible ? -16 : 80, height: 0)
+        case .center: return CGSize(width: 0, height: visible ? -110 : 80)
+        }
+    }
+    func origin(screen: CGRect, size: CGSize) -> CGPoint {
+        switch self {
+        case .left: return CGPoint(x: screen.minX, y: screen.midY - size.height / 2)
+        case .right: return CGPoint(x: screen.maxX - size.width, y: screen.midY - size.height / 2)
+        case .center: return CGPoint(x: screen.midX - size.width / 2, y: screen.minY)
+        }
+    }
+}
+
 struct WidthPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -25,7 +46,7 @@ struct HUDView: View {
         Group {
             switch state.style {
             case .iOSVolume, .iOSDisplay, .iOSKeyboard:
-                IOSHUDView(value: state.value, icon: state.style == .iOSVolume ? "speaker.wave.3.fill" : state.style == .iOSDisplay ? "sun.max.fill" : "keyboard", isVisible: state.isVisible, setLevel: state.setLevel, editing: state.editing)
+                IOSHUDView(value: state.value, icon: state.style == .iOSVolume ? "speaker.wave.3.fill" : state.style == .iOSDisplay ? "sun.max.fill" : "keyboard", isVisible: state.isVisible, setLevel: state.setLevel, editing: state.editing, position: state.position)
             case .nowPlayingClassic:
                 NowPlayingClassicView(value: state.value, icon: "music.note", isVisible: state.isVisible)
             }
@@ -58,6 +79,7 @@ struct IOSHUDView: View {
 
     var setLevel: ((Double) -> Void)? = nil
     var editing: ((Bool) -> Void)? = nil
+    var position: HUDPosition = .left
     @State private var animatedValue: Double = 0.0
     @State private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -68,9 +90,9 @@ struct IOSHUDView: View {
     var currentIcon: String {
         if icon.contains("speaker") {
             if audioDeviceManager.isHeadphonesActive { return "headphones" }
-            if animatedValue <= 0.01 { return "speaker.slash.fill" }
-            if animatedValue <= 0.33 { return "speaker.wave.1.fill" }
-            if animatedValue <= 0.66 { return "speaker.wave.2.fill" }
+            if value <= 0.01 { return "speaker.slash.fill" }
+            if value <= 0.33 { return "speaker.wave.1.fill" }
+            if value <= 0.66 { return "speaker.wave.2.fill" }
             return "speaker.wave.3.fill"
         } else if icon.contains("sun") {
             if animatedValue <= 0.33 { return "sun.min.fill" }
@@ -93,18 +115,24 @@ struct IOSHUDView: View {
                 FreeClipIconView()
                     .frame(width: 22, height: 22)
                     .foregroundColor(Color.white.opacity(0.4))
+                    .rotationEffect(.degrees(position.horizontal ? -90 : 0))
+                    .transaction { $0.animation = nil }
                     .padding(.bottom, 16)
 
-                if animatedValue <= 0.01 {
+                if value <= 0.01 {
                     Image(systemName: "line.diagonal")
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(Color.white.opacity(0.4))
-                        .padding(.bottom, 16)
+                        .rotationEffect(.degrees(position.horizontal ? -90 : 0))
+                    .transaction { $0.animation = nil }
+                    .padding(.bottom, 16)
                 }
             } else {
                 Image(systemName: currentIcon)
                     .font(.system(size: 16, weight: .medium)) // Menor e mais delicado
                     .foregroundColor(Color.white.opacity(0.4))
+                    .rotationEffect(.degrees(position.horizontal ? -90 : 0))
+                    .transaction { $0.animation = nil }
                     .padding(.bottom, 16) // Ajuste para equilibrar a nova altura
             }
 
@@ -123,17 +151,21 @@ struct IOSHUDView: View {
                             ZStack {
                                 FreeClipIconView()
                                     .frame(width: 22, height: 22)
-                                if animatedValue <= 0.01 {
+                                if value <= 0.01 {
                                     Image(systemName: "line.diagonal")
                                         .font(.system(size: 24, weight: .bold))
                                 }
                             }
-                            .padding(.bottom, 16)
+                            .rotationEffect(.degrees(position.horizontal ? -90 : 0))
+                    .transaction { $0.animation = nil }
+                    .padding(.bottom, 16)
                             .blendMode(.destinationOut)
                         } else {
                             Image(systemName: currentIcon)
                                 .font(.system(size: 16, weight: .medium))
-                                .padding(.bottom, 16)
+                                .rotationEffect(.degrees(position.horizontal ? -90 : 0))
+                    .transaction { $0.animation = nil }
+                    .padding(.bottom, 16)
                                 .blendMode(.destinationOut)
                         }
                     }
@@ -172,10 +204,12 @@ struct IOSHUDView: View {
         }
         .compositingGroup()
         // Os três indicadores usam exatamente a mesma entrada e saída.
-        .offset(x: isVisible ? 16 : -80)
+        .rotationEffect(.degrees(position.horizontal ? 90 : 0))
+        .frame(width: position.horizontal ? 230 : 48, height: position.horizontal ? 48 : 230)
+        .offset(position.offset(visible: isVisible))
         .opacity(isVisible ? 1.0 : 0.0)
-        // Fixar o elemento na esquerda da janela
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // Manter a entrada ancorada à borda escolhida.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
         .animation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.38, dampingFraction: 0.9), value: isVisible)
         .onChange(of: value) { newValue in
             let safeValue = min(1, max(0, newValue.isFinite ? newValue : 0))
@@ -453,6 +487,7 @@ extension AnyTransition {
 class HUDState: ObservableObject {
     static let shared = HUDState()
 
+    @Published var position: HUDPosition = .left
     @Published var style: HUDStyle = .iOSVolume
     @Published var value: Double = 0.5
     @Published var isVisible: Bool = false
@@ -464,8 +499,9 @@ class HUDState: ObservableObject {
         var transaction = Transaction(animation: animate ? .easeOut(duration: 0.16) : nil)
         transaction.disablesAnimations = !animate
         withTransaction(transaction) {
-            self.style = style
-            self.value = min(1, max(0, value))
+            if self.style != style { self.style = style }
+            let level = min(1, max(0, value))
+            if self.value != level { self.value = level }
         }
         // Mostrar imediatamente. Adiar isso para a próxima passagem da fila
         // fazia uma sequência contínua de brilho manter o HUD invisível até o

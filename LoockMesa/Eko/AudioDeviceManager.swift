@@ -16,6 +16,7 @@ class AudioDeviceManager: ObservableObject {
         checkCurrentDevice()
         setupListener()
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.checkCurrentDevice() }
+        timer.tolerance = 0.2
         RunLoop.main.add(timer, forMode: .common)
         connectionTimer = timer
     }
@@ -73,7 +74,7 @@ class AudioDeviceManager: ObservableObject {
             self.defaultOutputDeviceID = defaultOutputDevice
             let uid = getDeviceUID(deviceID: defaultOutputDevice)
             let name = getDeviceName(deviceID: defaultOutputDevice)
-            currentDeviceName = name
+            if currentDeviceName != name { currentDeviceName = name }
 
             let storedUID = UserDefaults.standard.string(forKey: "freeClipDeviceUID")
             let matchesUID = !uid.isEmpty && uid == storedUID
@@ -85,20 +86,22 @@ class AudioDeviceManager: ObservableObject {
             _ = AudioObjectGetPropertyData(defaultOutputDevice, &transportAddress, 0, nil, &size, &transport)
             let bluetooth = transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE
             // Never let a stale manual mapping turn the Mac speakers into FreeClip.
-            isFreeClipActive = bluetooth && (matchesUID || matchesName)
+            let freeClip = bluetooth && (matchesUID || matchesName)
+            if isFreeClipActive != freeClip { isFreeClipActive = freeClip }
             var sourceAddress = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDataSource, mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
             var source: UInt32 = 0
             size = UInt32(MemoryLayout<UInt32>.size)
             _ = AudioObjectGetPropertyData(defaultOutputDevice, &sourceAddress, 0, nil, &size, &source)
-            isHeadphonesActive = isFreeClipActive || source == 0x6864706e || ["headphone", "headset", "airpods", "fone"].contains(where: name.lowercased().contains)
+            let headphones = isFreeClipActive || source == 0x6864706e || ["headphone", "headset", "airpods", "fone"].contains(where: name.lowercased().contains)
+            if isHeadphonesActive != headphones { isHeadphonesActive = headphones }
         } else { resetOutput() }
     }
 
     private func resetOutput() {
         defaultOutputDeviceID = kAudioObjectUnknown
-        currentDeviceName = ""
-        isFreeClipActive = false
-        isHeadphonesActive = false
+        if !currentDeviceName.isEmpty { currentDeviceName = "" }
+        if isFreeClipActive { isFreeClipActive = false }
+        if isHeadphonesActive { isHeadphonesActive = false }
     }
 
     func clearFreeClipAssociation() {

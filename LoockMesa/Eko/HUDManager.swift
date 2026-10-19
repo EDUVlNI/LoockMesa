@@ -11,6 +11,16 @@ class HUDManager: ObservableObject {
         }
     }
 
+    @Published var position: HUDPosition = HUDPosition(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDPosition") ?? "") ?? .left {
+        didSet {
+            guard oldValue != position else { return }
+            UserDefaults.standard.set(position.rawValue, forKey: "GergelimHUDPosition")
+            if HUDState.shared.isVisible && HUDState.shared.style != .nowPlayingClassic {
+                showHUD(style: HUDState.shared.style, value: HUDState.shared.value)
+            }
+        }
+    }
+
     private var hudWindow: NSPanel?
 
     static let shared = HUDManager()
@@ -104,11 +114,12 @@ class HUDManager: ObservableObject {
             if active { self.hideWorkItem?.cancel() }
             else { self.showHUD(style: HUDState.shared.style, value: HUDState.shared.value) }
         }
+        if HUDState.shared.position != position { HUDState.shared.position = position }
         // Atualiza os valores via Estado Global (HUDState)
         HUDState.shared.show(style: style, value: value, animateLevel: false)
 
         // Redimensionar a janela para acomodar as animações vindas de fora da tela
-        let contentSize = style == .nowPlayingClassic ? NSSize(width: 450, height: 200) : NSSize(width: 200, height: 300)
+        let contentSize = style == .nowPlayingClassic ? NSSize(width: 450, height: 200) : NSSize(width: position.horizontal ? 300 : 200, height: 300)
         if window.contentView?.frame.size != contentSize { window.setContentSize(contentSize) }
 
         // Posicionar ancorado exatamente na borda da tela
@@ -118,8 +129,9 @@ class HUDManager: ObservableObject {
 
             if style != .nowPlayingClassic {
                 // Colado na borda esquerda
-                x = screen.frame.minX
-                y = screen.frame.midY - window.frame.height / 2
+                let origin = position.origin(screen: screen.frame, size: window.frame.size)
+                x = origin.x
+                y = origin.y
             } else if style == .nowPlayingClassic {
                 // Colado no topo da tela
                 y = screen.frame.maxY - window.frame.height

@@ -124,6 +124,14 @@ import AppKit
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         _ = try capture(musicHost, "music-matte.png")
         media.stop()
+        for position in HUDPosition.allCases {
+            let host = NSHostingView(rootView: IOSHUDView(value: 0.65, icon: "speaker.wave.3.fill", isVisible: true, position: position))
+            host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; previewWindows.append(window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            _ = try capture(host, "hud-\(position.rawValue).png")
+        }
         let imported = LumeCoordinator.shared
         for page in IntegrationSettingsView.Page.allCases {
             let host = NSHostingView(rootView: IntegrationSettingsView(coordinator: imported, model: imported.capsule.model, hud: imported.hud, corners: imported.corners, player: imported.player, selected: page).padding(24).frame(width: 650, height: 850, alignment: .topLeading))
