@@ -13,6 +13,7 @@ final class LyricsService: ObservableObject {
         return lookupFailed ? "Não foi possível carregar a letra. Nova tentativa automática." : "Letra não encontrada nesta fonte. O catálogo pode diferir do Spotify."
     }
     private var trackKey = ""
+    private var matchedDuration: TimeInterval = 0
     @Published var showingLyrics = false {
         didSet {
             guard showingLyrics != oldValue else { return }
@@ -44,6 +45,10 @@ final class LyricsService: ObservableObject {
     private func refresh() {
         let track = media.track
         let query = LyricsQuery(title: track.title, artist: track.artist, album: track.album, duration: media.position.duration)
+        // Native Spotify and MediaRemote can round track duration differently.
+        // Keep a successfully timed document instead of repeatedly fetching/replacing it.
+        if enabled, track.identity == trackKey, !document.lines.isEmpty,
+           abs(query.duration - matchedDuration) < 2 { return }
         let nextKey = enabled && track.pid > 0 && query.searchURL != nil ? query.key : ""
         guard key != nextKey || (!loading && Date() >= retryAfter && !key.isEmpty && cache[key] == nil) else { return }
         let changed = key != nextKey
@@ -56,6 +61,7 @@ final class LyricsService: ObservableObject {
         }
         guard !nextKey.isEmpty else { document = LyricsDocument(); showingLyrics = false; return }
         if let saved = cache[nextKey] { document = saved; lookupFailed = false; return }
+        matchedDuration = query.duration
         loading = true; lookupFailed = false
         let token = generation
         guard let url = query.url else { search(query, token: token, fallback: LyricsDocument()); return }
@@ -88,7 +94,7 @@ final class LyricsService: ObservableObject {
     }
     private func fetch(_ url: URL, token: UUID, completion: @escaping (Data?, Int?) -> Void) {
         var urlRequest = URLRequest(url: url, timeoutInterval: 12)
-        urlRequest.setValue("LoockMesa/0.38 (https://github.com/EDUVlNI/LoockMesa)", forHTTPHeaderField: "User-Agent")
+        urlRequest.setValue("LoockMesa/0.38.1 (https://github.com/EDUVlNI/LoockMesa)", forHTTPHeaderField: "User-Agent")
         request = session.dataTask(with: urlRequest) { [weak self] data, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode
             let safeData = data.flatMap { $0.count <= 4_000_000 ? $0 : nil }
@@ -101,12 +107,14 @@ final class LyricsService: ObservableObject {
         request?.resume()
     }
     private func finish(_ result: LyricsDocument, cacheable: Bool) {
-        document = result; loading = false; lookupFailed = !cacheable
-        if !result.available { showingLyrics = false }
+        // A retry for this same recording must not erase already-working timestamps.
+        let resolved = result.lines.isEmpty && !document.lines.isEmpty ? document : result
+        document = resolved; loading = false; lookupFailed = !cacheable
+        if !resolved.available { showingLyrics = false }
         // A network failure is not a permanent missing lyric; negative matches expire too.
         retryAfter = Date().addingTimeInterval(cacheable ? 300 : 60)
-        guard cacheable, result.available else { return }
-        cache[key] = result
+        guard cacheable, resolved.available else { return }
+        cache[key] = resolved
         cacheOrder.removeAll { $0 == key }; cacheOrder.append(key)
         if cacheOrder.count > 32 { cache.removeValue(forKey: cacheOrder.removeFirst()) }
     }

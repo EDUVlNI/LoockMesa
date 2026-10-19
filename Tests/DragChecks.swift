@@ -181,11 +181,12 @@ import SwiftUI
         controller.setVisible(false)
         precondition(controller.animateUnlock() == 0, "Hidden cards must remain hidden without replay")
         print("PASS: unlock reveal preserves layout, suppresses editing/hidden cards")
+        var lyricDuration = 180.0
         let lyricMedia = MusicService(api: MediaSourceAPI(
             pid: { _, done in done(42) },
             info: { _, done in done(["kMRMediaRemoteNowPlayingInfoTitle": "Test Song",
                 "kMRMediaRemoteNowPlayingInfoArtist": "Test Artist", "kMRMediaRemoteNowPlayingInfoAlbum": "Deluxe",
-                "kMRMediaRemoteNowPlayingInfoDuration": 180.0] as CFDictionary) },
+                "kMRMediaRemoteNowPlayingInfoDuration": lyricDuration] as CFDictionary) },
             playing: { _, done in done(true) }, bundle: { _ in "com.spotify.client" }))
         let lyricConfig = URLSessionConfiguration.ephemeral
         lyricConfig.protocolClasses = [LyricsFixtureProtocol.self]
@@ -199,6 +200,15 @@ import SwiftUI
         }
         precondition(lyricService.document.lines.first?.text == "Test lyric",
                      "An exact-match 404 must fall back to verified search lyrics")
+        lyricService.toggle()
+        precondition(lyricService.showingLyrics)
+        lyricDuration = 184
+        lyricMedia.refreshAll()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+        precondition(lyricService.showingLyrics && lyricService.document.lines.first?.time == 1,
+                     "Duration corrections must preserve automatic timed lyric mode")
+        precondition(lyricService.document.activeIndex(at: 0.5) == nil && lyricService.document.activeIndex(at: 1.5) == 0,
+                     "Supplied lyrics must advance with playback time")
         lyricService.configure(enabled: false)
         precondition(!lyricService.document.available && !lyricService.loading)
         lyricMedia.stop(); lyricSession.invalidateAndCancel()

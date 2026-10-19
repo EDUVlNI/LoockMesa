@@ -107,14 +107,11 @@ struct LyricsQuery: Equatable {
             let delta = abs(candidateDuration - duration)
             // Very different lengths usually indicate a different recording.
             if knownDuration && candidateDuration > 0 && delta > 10 { continue }
-            var document = record.document
+            let document = record.document
             guard document.available else { continue }
-            let timed = knownDuration && candidateDuration.isFinite && candidateDuration > 0 && delta <= 2
-                && (document.lines.last?.time ?? 0) <= duration + 1
-            if !timed {
-                if document.plain.isEmpty { document.plain = document.lines.map(\.text).joined(separator: "\n") }
-                document.lines = []
-            }
+            // Keep supplied line timestamps even when duration metadata is absent
+            // or differs by a few seconds. Duration ranks candidates; it must not
+            // silently turn a synchronized document into a static text view.
             let score = (document.lines.isEmpty ? 0.0 : 100.0)
                 + (Self.normalized(record.albumName ?? "") == Self.normalized(album) ? 10 : 0)
                 + (Self.normalized(record.trackName ?? "") == Self.normalized(title) ? 5 : 0)
