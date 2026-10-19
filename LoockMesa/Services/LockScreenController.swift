@@ -167,6 +167,9 @@ extension Notification.Name {
                 panel.close(); return
             }
         }
+        guard previewing || LockSessionState.current.shouldPresent else {
+            panel.close(); presenter?.hide(); return
+        }
         panel.orderFrontRegardless(); panels.append(panel)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.22
@@ -191,9 +194,11 @@ private final class LockHostingView<Content: View>: NSHostingView<Content> {
     private var lastDetail = ""
     private var lastFailure = "Nenhuma falha registrada"
     private var lastUpdate = Date()
+    private let log = Logger(subsystem: "com.eduvini.LoockMesa", category: "LockScreenDiagnostics")
     func record(_ value: String, detail: String = "") {
         guard status != value || lastDetail != detail else { return }
         status = value; lastDetail = detail; lastUpdate = Date()
+        log.notice("\(value, privacy: .public): \(detail, privacy: .public)")
         if !detail.isEmpty { lastFailure = "\(value): \(detail)" }
     }
     func copyReport() {
@@ -337,6 +342,9 @@ final class LockScreenSpace {
     }
     func show(windows: [Int]) -> Bool {
         guard !windows.isEmpty, LockSessionState.current.shouldPresent else { hide(); return false }
+        guard windows.allSatisfy({ $0 > 0 && $0 <= Int(UInt32.max) }) else {
+            lastError = "Invalid windowNumber: \(windows)"; hide(); return false
+        }
         let ids = windows.map { NSNumber(value: $0) } as CFArray
         adopt(connection, space, ids, 7)
         // Verify each window individually; a union query could hide a partial failure.
@@ -346,6 +354,9 @@ final class LockScreenSpace {
                 lastError = "Window \(window) was not associated with lock space \(space)"
                 hide(); return false
             }
+        }
+        guard LockSessionState.current.shouldPresent else {
+            lastError = "Session unlocked during window association"; hide(); return false
         }
         showSpaces(connection, [NSNumber(value: space)] as CFArray)
         lastError = ""; return true

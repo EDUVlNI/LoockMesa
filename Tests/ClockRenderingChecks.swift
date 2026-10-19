@@ -69,8 +69,14 @@ import AppKit
         analogHost.rootView = analog(false)
         RunLoop.main.run(until: Date().addingTimeInterval(0.25))
         let recovering = try capture(analogHost, "clock029-recovering.png")
-        RunLoop.main.run(until: Date().addingTimeInterval(1.1))
-        let resumed = try capture(analogHost, "clock029-resumed.png")
+        // Wait for observable advancement, allowing CI scheduling jitter while
+        // still requiring recovery AND a later distinct rendered frame.
+        let recoveryDeadline = Date().addingTimeInterval(4)
+        var resumed = recovering
+        repeat {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            resumed = try capture(analogHost, "clock029-resumed.png")
+        } while (resumed == pausedB || resumed == recovering) && Date() < recoveryDeadline
         precondition(resumed != pausedB && resumed != recovering, "Rendered clock must recover and continue ticking")
         print("PASS: actual NSHostingView renders analog movement, digital marker movement, outside-desktop freeze and animated recovery")
         var weatherFixture = WeatherSnapshot.demo
