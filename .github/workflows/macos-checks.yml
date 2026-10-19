@@ -11,22 +11,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build for Ventura Intel
-        run: xcodebuild -project LoockMesa.xcodeproj -scheme LoockMesa -configuration Debug -derivedDataPath /tmp/LoockBuild CODE_SIGNING_ALLOWED=NO build
+        run: xcodebuild -project Gergelim.xcodeproj -scheme Gergelim -configuration Debug -derivedDataPath /tmp/LoockBuild CODE_SIGNING_ALLOWED=NO build
       - name: Model checks
         run: bash Tests/run.sh
       - name: Desktop interaction checks
         run: bash Tests/run-ui-checks.sh
       - name: Clock rendering checks
         run: bash Tests/run-clock-checks.sh
+      - name: Eko power and menu regressions
+        run: bash Tests/run-eko-checks.sh
       - name: Package standalone Intel app
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LoockMesa-0.38.1-Intel
-          path: dist/LoockMesa-0.38.1-Intel.zip
+          name: Gergelim-1.0-Intel
+          path: dist/Gergelim-1.0-Intel.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: widget-previews-0381
+          name: widget-gergelim-previews-10
           path: dist/previews/*.png
           if-no-files-found: error

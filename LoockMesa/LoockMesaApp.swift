@@ -1,16 +1,18 @@
 import SwiftUI
 import AppKit
 import QuartzCore
+import Darwin
 
 @main
-struct LoockMesaApp: App {
+struct GergelimApp: App {
     @NSApplicationDelegateAdaptor(MesaDelegate.self) private var delegate
     var body: some Scene {
         Settings { EmptyView() }
     }
 }
 @MainActor final class MesaDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
-    private let store = DeskStore()
+    private let store: DeskStore = { GergelimMigration.run(); return DeskStore() }()
+    private var integration: LumeCoordinator?
     private var galleryObservers: [NSObjectProtocol] = []
     private var dropPanels: [NSPanel] = []
     private var galleryGeneration = 0
@@ -41,14 +43,24 @@ struct LoockMesaApp: App {
             NotificationCenter.default.post(name: .loockClockActivity, object: clocksPaused)
         }
         MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic,
-            enabled: (showingWidgets && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
+            enabled: MediaRemoteWrapper.shared.wantsPlayback || (showingWidgets && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
         LyricsService.shared.configure(enabled: (showingWidgets && store.item(.musicLyrics).enabled))
-        MusicService.shared.setPaused(paused)
+        MusicService.shared.setPaused(asleep || screenAsleep || (paused && !MediaRemoteWrapper.shared.wantsPlayback))
         devices.setPaused(paused); bluetooth.setPaused(paused)
         agenda.setPaused(paused); weather.setPaused(paused)
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        signal(SIGPIPE, SIG_IGN)
         NSApp.setActivationPolicy(.accessory)
+        integration = LumeCoordinator.shared
+        LumeCoordinator.migratePreferences()
+        integration?.start()
+        activityObservers.append(NotificationCenter.default.addObserver(forName: .gergelimPlayerSettingsChanged, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.updateActivity() }
+        })
+        activityObservers.append(NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.integration?.updateHUD() }
+        })
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification] {
             activityObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
@@ -93,13 +105,13 @@ struct LoockMesaApp: App {
         }
         desktop?.showSettings = { [weak self] in self?.openGallery() }
         let status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        status.button?.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Loock Mesa")
+        status.button?.image = GergelimSeed.image()
         let menu = NSMenu()
-        menu.addItem(withTitle: "Personalizar widgets…", action: #selector(openGallery), keyEquivalent: "")
+        menu.addItem(withTitle: "Configurações do Gergelim…", action: #selector(openGallery), keyEquivalent: "")
         menu.addItem(withTitle: "Mostrar/ocultar widgets", action: #selector(toggleWidgets), keyEquivalent: "")
         menu.addItem(withTitle: "Reorganizar posições", action: #selector(resetPositions), keyEquivalent: "")
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Encerrar Loock Mesa", action: #selector(quit), keyEquivalent: "q")
+        menu.addItem(withTitle: "Encerrar Gergelim", action: #selector(quit), keyEquivalent: "q")
         menu.items.forEach { $0.target = self }; status.menu = menu; self.status = status
         NotificationCenter.default.addObserver(self, selector: #selector(galleryDragStarted(_:)), name: .loockGalleryDragStarted, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(galleryDropReceived(_:)), name: .loockGalleryDrop, object: nil)
@@ -150,6 +162,7 @@ struct LoockMesaApp: App {
         desktop?.animateUnlock()
     }
     func applicationWillTerminate(_ notification: Notification) {
+        integration?.stop()
         desktopFocusTimer?.invalidate()
         galleryObservers.forEach { NotificationCenter.default.removeObserver($0) }
         dropPanels.forEach { $0.close() }
@@ -163,7 +176,7 @@ struct LoockMesaApp: App {
             let window = GalleryPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = true
             window.hidesOnDeactivate = false; window.animationBehavior = .none
-            window.title = "Loock Mesa"; window.isReleasedWhenClosed = false; window.delegate = self
+            window.title = "Gergelim"; window.isReleasedWhenClosed = false; window.delegate = self
             window.contentView = makeGalleryContent()
             gallery = window
         }

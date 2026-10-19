@@ -17,6 +17,20 @@ import AppKit
         neutralFixture.lockFocus(); NSColor.gray.setFill(); NSRect(x: 0, y: 0, width: 24, height: 24).fill(); neutralFixture.unlockFocus()
         precondition(ArtworkPalette.colors(from: neutralFixture).allSatisfy { abs($0.redComponent - $0.greenComponent) < 0.02 && abs($0.greenComponent - $0.blueComponent) < 0.02 })
         print("PASS: artwork palette preserves real colors and neutral covers")
+        let migrationDefaults = UserDefaults(suiteName: "Gergelim.MigrationTest")!
+        migrationDefaults.removePersistentDomain(forName: "Gergelim.MigrationTest")
+        GergelimMigration.run(defaults: migrationDefaults, readDomain: { domain in
+            domain == "com.eduvini.LoockMesa" ? ["LoockMesa.preferences.v4": Data([1, 2, 3])] : ["CapsuleScale": 1.25, "ElementOrderV4": ["time", "music", "battery"]]
+        })
+        precondition(migrationDefaults.data(forKey: "LoockMesa.preferences.v4") == Data([1, 2, 3]))
+        precondition(migrationDefaults.double(forKey: "CapsuleScale") == 1.25)
+        precondition(migrationDefaults.stringArray(forKey: "ElementOrderV4") == ["time", "battery"])
+        migrationDefaults.set(1.4, forKey: "CapsuleScale")
+        GergelimMigration.run(defaults: migrationDefaults, readDomain: { _ in ["CapsuleScale": 0.8] })
+        precondition(migrationDefaults.double(forKey: "CapsuleScale") == 1.4)
+        migrationDefaults.removePersistentDomain(forName: "Gergelim.MigrationTest")
+        precondition(GergelimSeed.image().isTemplate)
+        print("PASS: Gergelim one-time preference migration preserves customization and removes capsule music")
         let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory(), isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         func analog(_ inactive: Bool) -> some View {
@@ -110,6 +124,15 @@ import AppKit
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         _ = try capture(musicHost, "music-matte.png")
         media.stop()
+        let imported = LumeCoordinator.shared
+        for page in IntegrationSettingsView.Page.allCases {
+            let host = NSHostingView(rootView: IntegrationSettingsView(coordinator: imported, model: imported.capsule.model, hud: imported.hud, corners: imported.corners, player: imported.player, selected: page).padding(24).frame(width: 650, height: 850, alignment: .topLeading))
+            host.frame = CGRect(x: 0, y: 0, width: 650, height: 850)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; previewWindows.append(window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            _ = try capture(host, "gergelim-\(page.id).png")
+        }
         withExtendedLifetime((analogWindow, digitalWindow, previewWindows)) {}
 
     }

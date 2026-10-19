@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct GalleryView: View {
+@MainActor struct GalleryView: View {
     @ObservedObject var store: DeskStore
     @ObservedObject var devices: DeviceService
     let weather: WeatherService
@@ -15,29 +15,37 @@ struct GalleryView: View {
     @State private var general = false
     @State private var allWidgets = true
     @State private var search = ""
+    @State private var integrationPage: IntegrationSettingsView.Page?
+    @ObservedObject private var integration = LumeCoordinator.shared
     private var categories: [WidgetKind] { WidgetKind.allCases.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) } }
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 12) {
-                    TextField("Buscar widgets", text: $search).textFieldStyle(.roundedBorder)
+                    TextField("Buscar", text: $search).textFieldStyle(.roundedBorder)
                     ScrollView {
                         VStack(spacing: 5) {
-                            sidebarRow("Todos os widgets", symbol: "square.grid.2x2", color: .blue, active: allWidgets && !general) { allWidgets = true; general = false }
+                            sidebarRow("Todos os widgets", symbol: "square.grid.2x2", color: .blue, active: integrationPage == nil && allWidgets && !general) { integrationPage = nil; allWidgets = true; general = false }
                             ForEach(categories) { kind in
-                                sidebarRow(kind.title, symbol: kind.symbol, color: iconColor(kind), active: !general && !allWidgets && selected == kind) {
-                                    selected = kind; general = false; allWidgets = false
+                                sidebarRow(kind.title, symbol: kind.symbol, color: iconColor(kind), active: integrationPage == nil && !general && !allWidgets && selected == kind) {
+                                    integrationPage = nil; selected = kind; general = false; allWidgets = false
                                 }
                             }
                             Divider().padding(.vertical, 8)
-                            sidebarRow("Ajustes gerais", symbol: "gearshape.fill", color: .gray, active: general) { general = true }
+                            ForEach(IntegrationSettingsView.Page.allCases.filter { search.isEmpty || $0.rawValue.localizedCaseInsensitiveContains(search) }) { page in
+                                sidebarRow(page == .music ? "Player flutuante" : page.rawValue, symbol: page.symbol, color: page.color, active: integrationPage == page) { integrationPage = page }
+                            }
+
+                            sidebarRow("Ajustes gerais", symbol: "gearshape.fill", color: .gray, active: integrationPage == nil && general) { integrationPage = nil; general = true }
                         }
                     }
                 }.padding(16).frame(width: 190)
                 Divider()
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
-                        if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
+                        if let page = integrationPage {
+                            IntegrationSettingsView(coordinator: integration, model: integration.capsule.model, hud: integration.hud, corners: integration.corners, player: integration.player, selected: page)
+                        } else if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
                         else {
                             ForEach(allWidgets ? categories : [selected]) { kind in
                                 catalogue(kind)
@@ -51,7 +59,7 @@ struct GalleryView: View {
                 }
                 // Recreate the scroll container on navigation, not the shared app data.
                 // A long catalogue must not leave a short category scrolled offscreen.
-                .id(general ? "general" : allWidgets ? "all-" + search : selected.rawValue)
+                .id(integrationPage?.rawValue ?? (general ? "general" : allWidgets ? "all-" + search : selected.rawValue))
                 .mask {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom).frame(height: 22)
@@ -70,7 +78,7 @@ struct GalleryView: View {
         }.background(SettingsSidebarMaterial())
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             .onAppear { previewEntrance.finish() }
-            .onReceive(NotificationCenter.default.publisher(for: .loockSelectMusic)) { _ in selected = .music; general = false; allWidgets = false }
+            .onReceive(NotificationCenter.default.publisher(for: .loockSelectMusic)) { _ in integrationPage = nil; selected = .music; general = false; allWidgets = false }
     }
     private func catalogue(_ kind: WidgetKind) -> some View {
         VStack(alignment: .leading, spacing: 16) {
