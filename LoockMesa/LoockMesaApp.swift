@@ -40,6 +40,9 @@ struct LoockMesaApp: App {
             lastClockPause = clocksPaused
             NotificationCenter.default.post(name: .loockClockActivity, object: clocksPaused)
         }
+        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic,
+            enabled: (showingWidgets && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
+        LyricsService.shared.configure(enabled: (showingWidgets && store.item(.musicLyrics).enabled))
         MusicService.shared.setPaused(paused)
         devices.setPaused(paused); bluetooth.setPaused(paused)
         agenda.setPaused(paused); weather.setPaused(paused)
@@ -109,6 +112,7 @@ struct LoockMesaApp: App {
         // Never drives authentication or treats the event as a security guarantee.
         lockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.hideGallery()
                 self?.lastReveal = .distantPast
                 self?.desktop?.prepareUnlock()
             }

@@ -52,15 +52,26 @@ import Network
         task = Task { [weak self] in
             do {
                 var url = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
-                let fields = ["latitude": "\(coordinates.0)", "longitude": "\(coordinates.1)", "current": "temperature_2m,weather_code,is_day", "hourly": "temperature_2m,weather_code,is_day", "daily": "temperature_2m_min,temperature_2m_max,weather_code", "timezone": "auto", "forecast_days": "5"]
+                let fields = ["latitude": "\(coordinates.0)", "longitude": "\(coordinates.1)", "current": "temperature_2m,weather_code,is_day,wind_speed_10m,wind_direction_10m", "hourly": "temperature_2m,weather_code,is_day,precipitation_probability,uv_index", "daily": "temperature_2m_min,temperature_2m_max,weather_code,sunrise,sunset", "timezone": "auto", "forecast_days": "7"]
                 url.queryItems = fields.map { URLQueryItem(name: $0.key, value: $0.value) }
                 var request = URLRequest(url: url.url!); request.timeoutInterval = 15
                 let (data, response) = try await URLSession.shared.data(for: request)
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-                let value = try JSONDecoder().decode(ForecastResponse.self, from: data).snapshot()
+                var value = try JSONDecoder().decode(ForecastResponse.self, from: data).snapshot()
                 try Task.checkCancellation()
-                self?.lastSuccess = Date(); self?.task = nil
+                self?.lastSuccess = Date()
                 self?.snapshot = value; self?.status = "Open-Meteo · " + Date().formatted(date: .omitted, time: .shortened)
+                // AQ is optional: a separate provider failure must not discard the forecast.
+                var airURL = URLComponents(string: "https://air-quality-api.open-meteo.com/v1/air-quality")!
+                airURL.queryItems = [URLQueryItem(name: "latitude", value: "\(coordinates.0)"), URLQueryItem(name: "longitude", value: "\(coordinates.1)"), URLQueryItem(name: "current", value: "us_aqi")]
+                var airRequest = URLRequest(url: airURL.url!); airRequest.timeoutInterval = 10
+                if let (airData, airResponse) = try? await URLSession.shared.data(for: airRequest),
+                   (airResponse as? HTTPURLResponse)?.statusCode == 200,
+                   let air = try? JSONDecoder().decode(AirQualityResponse.self, from: airData) {
+                    value.airQuality = air.current?.us_aqi
+                }
+                try Task.checkCancellation()
+                self?.snapshot = value; self?.task = nil
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.task = nil

@@ -7,23 +7,23 @@ struct WeatherBackground: View {
     var colors: [Color] {
                 switch mood {
         case .sunny: return [Color(red: 0.12, green: 0.39, blue: 0.72), Color(red: 0.30, green: 0.62, blue: 0.87)]
-        case .cloudy: return [Color(red: 0.30, green: 0.39, blue: 0.48), Color(red: 0.53, green: 0.58, blue: 0.60)]
+        case .cloudy: return [Color(red: 0.28, green: 0.61, blue: 0.75), Color(red: 0.26, green: 0.48, blue: 0.61)]
         case .rain: return [Color(red: 0.19, green: 0.26, blue: 0.33), Color(red: 0.35, green: 0.43, blue: 0.49)]
         case .clearNight: return [Color(red: 0.06, green: 0.09, blue: 0.21), Color(red: 0.16, green: 0.20, blue: 0.34)]
-        case .cloudyNight: return [Color(white: 0.12), Color(red: 0.22, green: 0.23, blue: 0.24)]
+        case .cloudyNight: return [Color(red: 0.025, green: 0.035, blue: 0.12), Color(red: 0.19, green: 0.22, blue: 0.31)]
         case .fogNight: return [Color(red: 0.13, green: 0.14, blue: 0.14), Color(red: 0.20, green: 0.20, blue: 0.16)]
         case .storm: return [Color(red: 0.17, green: 0.18, blue: 0.25), Color(red: 0.30, green: 0.30, blue: 0.35)]
         case .snow: return [Color(red: 0.34, green: 0.45, blue: 0.54), Color(red: 0.58, green: 0.64, blue: 0.69)]
         }
     }
     var body: some View {
-        LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
             .overlay {
                 GeometryReader { g in
                     if mood == .sunny {
-                        RadialGradient(colors: [.yellow.opacity(0.32), .clear], center: .topTrailing, startRadius: 0, endRadius: g.size.width * 0.8)
+                        RadialGradient(colors: [.white.opacity(0.055), .clear], center: .topTrailing, startRadius: 0, endRadius: g.size.width * 0.8)
                     } else if mood == .cloudy || mood == .cloudyNight || mood == .rain || mood == .fogNight {
-                        RadialGradient(colors: [.white.opacity(mood == .cloudy ? 0.18 : 0.06), .clear], center: .bottomLeading, startRadius: 0, endRadius: max(g.size.width, g.size.height))
+                        RadialGradient(colors: [.white.opacity(mood == .cloudy ? 0.04 : 0.025), .clear], center: .bottomLeading, startRadius: 0, endRadius: max(g.size.width, g.size.height))
                     }
                 }.allowsHitTesting(false)
             }

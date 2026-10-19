@@ -29,7 +29,7 @@ struct WidgetFace: View {
             case .musicLyrics: LyricsWidget(size: size, media: music, appearance: appearance, frosted: frost)
             case .music: MusicWidget(size: size, store: store, media: music, appearance: appearance, forcedFrosted: frost)
             case .headphones: HeadphonesWidget(size: size, demo: store.preferences.demoHeadphones, bluetooth: bluetooth, devices: devices, light: appearance == .light, frosted: frost, monochrome: false)
-            case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather, appearance: appearance, frosted: frost)
+            case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather, variant: chosenVariant, appearance: appearance, frosted: frost)
             case .clock: ModernClockWidget(size: size, digital: chosenVariant == "digital", dark: appearance != .light, frosted: frost, lowPower: devices.lowPower, desktopInactive: outsideDesktopEffect)
             case .macBattery: MacBatteryWidget(size: size, devices: devices, light: appearance == .light, frosted: frost)
             case .reminders: RemindersWidget(size: size, agenda: agenda, light: appearance == .light, frosted: frost)
@@ -44,6 +44,13 @@ struct WidgetFace: View {
             .frame(width: size.dimensions.width, height: size.dimensions.height)
             .clipShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.55), value: outsideDesktopEffect)
+            .overlay {
+                if kind == .headphones || kind == .macBattery {
+                    RoundedRectangle(cornerRadius: 23, style: .continuous)
+                        .strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.025), .black.opacity(0.09)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 0.5)
+                        .allowsHitTesting(false)
+                }
+            }
             .modifier(WidgetStyleChangeEffect(token: styleToken))
             .modifier(WidgetEntranceEffect(state: entrance))
             .environment(\.frostIntensity, outsideDesktopEffect ? min(0.82, max(0.58, store.preferences.frostAmount(kind))) : store.preferences.frostAmount(kind))
@@ -79,7 +86,7 @@ private struct WidgetStyleChangeEffect: ViewModifier {
 struct HeadphonesWidget: View {
     let size: WidgetSize
     let demo: Bool
-    let bluetooth: BluetoothBatteryService
+    @ObservedObject var bluetooth: BluetoothBatteryService
     @ObservedObject var devices: DeviceService
     var light = false
     var frosted = false
@@ -94,12 +101,7 @@ struct HeadphonesWidget: View {
     private var dimension: CGFloat { size == .small ? 57 : size == .medium ? 60 : 96 }
     var body: some View {
         Group {
-            if size == .small && devices.lowPower && entries.count == 1 {
-                VStack(alignment: .leading, spacing: 17) {
-                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 55, charging: devices.charging, light: light, lowPower: true)
-                    AnimatedValue(value: "\(devices.macBattery ?? 0)%").font(.system(size: 36, weight: .regular))
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            } else if size == .medium {
+            if size == .medium {
                 HStack(spacing: 0) {
                     ForEach(0..<capacity, id: \.self) { slot($0).frame(maxWidth: .infinity) }
                 }.padding(.horizontal, 17)
@@ -159,14 +161,14 @@ struct MacBatteryWidget: View {
         Group {
             if size == .medium {
                 HStack(spacing: 23) {
-                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 98, charging: devices.charging, light: light)
+                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: 98, charging: devices.charging, light: light, lowPower: devices.lowPower)
                     VStack(alignment: .leading, spacing: 6) { details }
                     Spacer(minLength: 0)
                 }.padding(23)
             } else {
-                VStack(alignment: .leading, spacing: size == .large ? 18 : 6) {
-                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: size == .large ? 166 : 65, charging: devices.charging, light: light)
-                        .frame(maxWidth: .infinity).padding(.top, size == .large ? 12 : 0)
+                VStack(alignment: .leading, spacing: size == .large ? 18 : 17) {
+                    BatteryRing(symbol: "laptopcomputer", value: devices.macBattery, dimension: size == .large ? 166 : 55, charging: devices.charging, light: light, lowPower: devices.lowPower)
+                        .frame(maxWidth: .infinity, alignment: size == .small ? .leading : .center).padding(.top, size == .large ? 12 : 0)
                     details
                 }.padding(size == .large ? 26 : 17)
             }
@@ -177,10 +179,10 @@ struct MacBatteryWidget: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
                 Text(devices.macBattery.map { "\($0)%" } ?? "—").font(.system(size: size == .large ? 48 : 32, weight: .light, design: .rounded))
-                if size == .small { Spacer(); Text("MAC").font(.system(size: 8, weight: .semibold)).opacity(0.6) }
+
             }
             if size != .small { Text("MacBook Pro").font(.system(size: 14, weight: .medium)) }
-            Text(devices.powerStatus).font(.system(size: size == .small ? 9 : 11)).opacity(0.65).lineLimit(1)
+            if size != .small { Text(devices.powerStatus).font(.system(size: 11)).opacity(0.65).lineLimit(1) }
         }
     }
 }
@@ -218,78 +220,280 @@ struct WeatherWidget: View {
     let size: WidgetSize
     let city: String
     @ObservedObject var service: WeatherService
+    var variant = "standard"
     var appearance: WidgetAppearance = .original
     var frosted = false
     private var light: Bool { appearance == .light }
+    private var ink: Color { light ? .black : .white }
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        Group {
             if let data = service.snapshot {
-                if size == .small {
-                    Text(city).font(.system(size: 16, weight: .medium)).lineLimit(1)
-                    Text("\(data.temperature)°").font(.system(size: 44, weight: .light)).padding(.top, -1)
-                    Spacer(minLength: 2)
-                    Image(systemName: WeatherSnapshot.symbol(data.code, isDay: data.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 17))
-                    Text(WeatherSnapshot.description(data.code)).font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8)
-                    Text("Máx. \(data.high)°  Mín. \(data.low)°").font(.system(size: 10, weight: .medium))
-                    sourceLabel.padding(.top, 4)
-                } else {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(city).font(.system(size: 18, weight: .medium))
-                            Text("\(data.temperature)°").font(.system(size: size == .large ? 45 : 32, weight: .light))
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Image(systemName: WeatherSnapshot.symbol(data.code, isDay: data.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 22))
-                            Text(WeatherSnapshot.description(data.code)).font(.system(size: 10)).lineLimit(1)
-                            Text("Máx. \(data.high)°  Mín. \(data.low)°").font(.system(size: 10))
-                        }.padding(.top, 2)
-                    }
-                    if size == .large { Divider().overlay((light ? Color.black : .white).opacity(0.2)).padding(.vertical, 9) }
-                    HStack {
-                        ForEach(Array(data.hours.enumerated()), id: \.offset) { _, hour in
-                            VStack(spacing: 5) {
-                                Text(hour.label).font(.system(size: 10, weight: .medium)).foregroundStyle((light ? Color.black : .white).opacity(0.75))
-                                Image(systemName: WeatherSnapshot.symbol(hour.code, isDay: hour.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 15))
-                                Text("\(hour.temperature)°").font(.system(size: 13, weight: .medium))
-                            }.frame(maxWidth: .infinity)
-                        }
-                    }
-                    if size == .large {
-                        Divider().overlay((light ? Color.black : .white).opacity(0.2)).padding(.vertical, 10)
-                        VStack(spacing: 10) {
-                            ForEach(Array((data.days.count > 4 ? Array(data.days.dropFirst().prefix(4)) : data.days).enumerated()), id: \.offset) { _, day in
-                                HStack(spacing: 10) {
-                                    Text(day.label).frame(width: 56, alignment: .leading)
-                                    Image(systemName: WeatherSnapshot.symbol(day.code)).symbolRenderingMode(.multicolor).frame(width: 22)
-                                    Text("\(day.low)°").foregroundStyle((light ? Color.black : .white).opacity(0.65)).frame(width: 26)
-                                    TemperatureRange(low: day.low, high: day.high, minimum: data.days.map(\.low).min() ?? day.low, maximum: data.days.map(\.high).max() ?? day.high)
-                                    Text("\(day.high)°").frame(width: 26)
-                                }.font(.system(size: 12, weight: .medium))
-                            }
-                        }
-                    }
-                    Spacer(minLength: 2)
-                    sourceLabel.padding(.top, 4)
-                }
+                if ["daily", "details", "sun"].contains(variant) {
+                    WeatherVariantContent(size: size, city: city, data: data, variant: variant, light: light)
+                } else { forecast(data) }
             } else {
-                Text(city).font(.headline)
-                Spacer()
-                Image(systemName: "cloud").font(.largeTitle)
-                Text("—").font(.largeTitle)
-                Text(service.status).font(.caption)
-                Spacer()
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(city).font(.headline)
+                    Spacer()
+                    Image(systemName: "cloud").font(.largeTitle)
+                    Text("—").font(.largeTitle)
+                    Text(service.status).font(.caption)
+                }
             }
-        }.padding(size == .small ? 15 : 16).foregroundStyle(light ? .black : .white)
+        }.padding(size == .small ? 15 : 16)
+            .foregroundStyle(ink)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
-                if frosted { HarmonizedCardBackground(light: light, frosted: true).transition(.opacity) }
-                else if appearance == .original { WeatherBackground(snapshot: service.snapshot).transition(.opacity) }
-                else { HarmonizedCardBackground(light: light, frosted: false).transition(.opacity) }
+                if appearance == .original {
+                    ZStack {
+                        if frosted { HarmonizedCardBackground(light: false, frosted: true) }
+                        WeatherBackground(snapshot: service.snapshot).opacity(frosted ? 0.80 : 1)
+                    }
+                } else { HarmonizedCardBackground(light: light, frosted: frosted) }
             }
+            .overlay(RoundedRectangle(cornerRadius: 23, style: .continuous)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5).allowsHitTesting(false))
+            .help(service.status + " · Dados meteorológicos: Open-Meteo; qualidade do ar: CAMS")
     }
-    private var sourceLabel: some View {
-        Text(service.status).font(.system(size: 8, weight: .medium)).foregroundStyle((light ? Color.black : .white).opacity(0.65)).lineLimit(1)
+    @ViewBuilder private func forecast(_ data: WeatherSnapshot) -> some View {
+        if size == .small {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(city).font(.system(size: 16, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                Text("\(data.temperature)°").font(.system(size: 44, weight: .light)).tracking(-1)
+                Spacer(minLength: 4)
+                Image(systemName: WeatherSnapshot.symbol(data.code, isDay: data.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 17))
+                Text(WeatherSnapshot.description(data.code)).font(.system(size: 12, weight: .semibold)).lineLimit(2).minimumScaleFactor(0.9)
+                Text("Máx \(data.high)° Mín \(data.low)°").font(.system(size: 12, weight: .medium))
+            }
+        } else {
+            VStack(spacing: 0) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(city).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                        Text("\(data.temperature)°").font(.system(size: 39, weight: .light)).tracking(-1)
+                    }
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Image(systemName: WeatherSnapshot.symbol(data.code, isDay: data.isDay)).symbolRenderingMode(.multicolor).font(.system(size: 19))
+                        Text(WeatherSnapshot.description(data.code)).lineLimit(1).minimumScaleFactor(0.7)
+                        Text("Máx \(data.high)° Mín \(data.low)°")
+                    }.font(.system(size: 12, weight: .medium))
+                }
+                if size == .large { divider.padding(.vertical, 10) } else { Spacer(minLength: 7) }
+                HStack(spacing: 0) {
+                    ForEach(Array(data.hours.prefix(6).enumerated()), id: \.offset) { _, hour in
+                        VStack(spacing: 8) {
+                            Text(hour.label).font(.system(size: 11, weight: .semibold)).opacity(0.65)
+                            Image(systemName: hour.symbol).symbolRenderingMode(.multicolor).font(.system(size: 18)).frame(height: 22)
+                            Text("\(hour.temperature)°").font(.system(size: 13, weight: .semibold))
+                        }.frame(maxWidth: .infinity)
+                    }
+                }
+                if size == .large {
+                    divider.padding(.vertical, 10)
+                    VStack(spacing: 0) {
+                        ForEach(Array(data.days.dropFirst().prefix(5).enumerated()), id: \.offset) { _, day in
+                            WeatherDayRow(day: day, days: data.days, light: light)
+                                .frame(maxHeight: .infinity)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    private var divider: some View { Rectangle().fill(ink.opacity(0.25)).frame(height: 0.5) }
+}
+struct WeatherDayRow: View {
+    let day: ForecastDay
+    let days: [ForecastDay]
+    var light = false
+    var compact = false
+    var body: some View {
+        HStack(spacing: compact ? 6 : 9) {
+            Text(day.label).lineLimit(1).minimumScaleFactor(0.7).frame(width: compact ? 29 : 39, alignment: .leading)
+            Image(systemName: WeatherSnapshot.symbol(day.code)).symbolRenderingMode(.multicolor).frame(width: compact ? 18 : 24)
+            Text("\(day.low)°").opacity(0.45).frame(width: compact ? 23 : 26, alignment: .trailing)
+            TemperatureRange(low: day.low, high: day.high, minimum: days.map(\.low).min() ?? day.low, maximum: days.map(\.high).max() ?? day.high)
+            Text("\(day.high)°").frame(width: compact ? 23 : 26, alignment: .trailing)
+        }.font(.system(size: compact ? 11 : 13, weight: .semibold))
+    }
+}
+
+/// Expanded layouts retain the hierarchy of the small Weather reference cards.
+struct WeatherVariantContent: View {
+    let size: WidgetSize
+    let city: String
+    let data: WeatherSnapshot
+    let variant: String
+    var light = false
+    private var small: Bool { size == .small }
+    private var large: Bool { size == .large }
+    var body: some View {
+        Group {
+            if variant == "sun" { solar }
+            else if variant == "daily" { daily }
+            else { details }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+    private var header: some View {
+        HStack(alignment: .top, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(city).font(.system(size: small ? 13 : 18, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
+                Text("\(data.temperature)°").font(.system(size: small ? 31 : 43, weight: .light))
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 3) {
+                Image(systemName: WeatherSnapshot.symbol(data.code, isDay: data.isDay))
+                    .symbolRenderingMode(.multicolor).font(.system(size: small ? 16 : 23))
+                Text("Máx. \(data.high)°").font(.system(size: small ? 8 : 10))
+                Text("Mín. \(data.low)°").font(.system(size: small ? 8 : 10))
+            }
+        }
+    }
+    private var daily: some View {
+        Group {
+            if size == .medium {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(city).font(.system(size: 16, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                        Text("\(data.temperature)°").font(.system(size: 43, weight: .light))
+                        Spacer(minLength: 4)
+                        Image(systemName: "thermometer.medium").font(.system(size: 17))
+                        if let tomorrow = data.days.dropFirst().first {
+                            Text("Amanhã, máxima de \(tomorrow.high)°").font(.system(size: 12, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }.frame(width: 112, alignment: .leading)
+                    VStack(spacing: 0) {
+                        ForEach(Array(data.days.prefix(5).enumerated()), id: \.offset) { _, day in
+                            WeatherDayRow(day: day, days: data.days, light: light, compact: true).frame(maxHeight: .infinity)
+                        }
+                    }
+                }
+            } else {
+                VStack(spacing: large ? 14 : 5) {
+                    header
+                    ForEach(Array(data.days.prefix(small ? 4 : 7).enumerated()), id: \.offset) { _, day in
+                        if large {
+                            WeatherDayRow(day: day, days: data.days, light: light).frame(maxHeight: .infinity)
+                        } else {
+                            HStack(spacing: 6) {
+                                Text(day.label).lineLimit(1).minimumScaleFactor(0.7).frame(width: 32, alignment: .leading)
+                                Image(systemName: WeatherSnapshot.symbol(day.code)).symbolRenderingMode(.multicolor).frame(width: 15)
+                                Spacer(minLength: 0)
+                                Text("\(day.low)°").opacity(0.55)
+                                Text("\(day.high)°")
+                            }.font(.system(size: 11, weight: .medium))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    private func number(_ value: Double?, suffix: String = "") -> String {
+        guard let value, value.isFinite else { return "—" }
+        return String(Int(value.rounded())) + suffix
+    }
+    private var windText: String {
+        guard let direction = data.windDirection, direction.isFinite else { return number(data.wind, suffix: " km/h") }
+        let directions = ["N", "NE", "L", "SE", "S", "SO", "O", "NO"]
+        let index = Int((direction.truncatingRemainder(dividingBy: 360) + 360 + 22.5) / 45) % 8
+        return number(data.wind, suffix: " km/h ") + directions[index]
+    }
+    private var metrics: [(String, String, String)] {
+        let uvLevel = data.uv.map { $0 < 3 ? "Baixo" : $0 < 6 ? "Moderado" : $0 < 8 ? "Alto" : "Muito alto" } ?? ""
+        return [("Chuva", number(data.precipitation, suffix: "%"), "drop.fill"),
+                ("UV", number(data.uv) + " " + uvLevel, "sun.max.fill"),
+                ("Vento", windText, "wind"), ("IQA (EUA)", number(data.airQuality), "aqi.medium")]
+    }
+    private var metricRows: some View {
+        VStack(spacing: small ? 5 : 12) {
+            ForEach(metrics.indices, id: \.self) { i in
+                HStack {
+                    Text(metrics[i].0)
+                    Spacer(minLength: 2)
+                    Text(metrics[i].1).opacity(0.7).lineLimit(1).minimumScaleFactor(0.7)
+                }.font(.system(size: small ? 10 : 13, weight: .medium))
+            }
+        }
+    }
+    private var details: some View {
+        Group {
+            if size == .medium {
+                HStack(alignment: .center, spacing: 22) {
+                    header.frame(width: 143)
+                    metricRows
+                }.frame(maxHeight: .infinity)
+            } else {
+                VStack(spacing: large ? 20 : 2) {
+                    header
+                    if large {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            ForEach(metrics.indices, id: \.self) { i in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Label(metrics[i].0.uppercased(), systemImage: metrics[i].2).font(.system(size: 10, weight: .semibold)).opacity(0.7)
+                                    Text(metrics[i].1).font(.system(size: 19, weight: .medium)).lineLimit(1).minimumScaleFactor(0.65)
+                                }.frame(maxWidth: .infinity, minHeight: 71, alignment: .leading).padding(12)
+                                    .background((light ? Color.black : .white).opacity(0.07), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                        }
+                    } else { metricRows }
+                }
+            }
+        }
+    }
+    private var solar: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { timeline in
+            let event = data.solarEvent(at: timeline.date)
+            let progress = data.solarProgress(at: timeline.date)
+            VStack(alignment: .leading, spacing: large ? 14 : 6) {
+                Label(event.label, systemImage: event.label == "PÔR DO SOL" ? "sunset.fill" : "sunrise.fill")
+                    .font(.system(size: small ? 10 : 13, weight: .semibold)).opacity(0.9)
+                if size == .medium {
+                    HStack(spacing: 22) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(data.localTime(event.date)).font(.system(size: 38, weight: .light)).monospacedDigit()
+                            Text(city).font(.system(size: 12)).opacity(0.7)
+                        }
+                        SunPath(progress: progress, light: light).frame(height: 68)
+                    }
+                } else {
+                    Text(data.localTime(event.date)).font(.system(size: small ? 34 : 55, weight: .light)).monospacedDigit()
+                    SunPath(progress: progress, light: light).frame(maxHeight: .infinity)
+                }
+                HStack {
+                    Text("Nascer " + data.localTime(data.sunrise))
+                    Spacer(minLength: 2)
+                    if !small { Text("Pôr " + data.localTime(data.sunset)) }
+                }.font(.system(size: small ? 10 : 12)).opacity(0.8)
+                if large { Text(city).font(.system(size: 12)).opacity(0.6) }
+            }
+        }
+    }
+}
+private struct SunPath: View {
+    let progress: Double?
+    var light = false
+    private var ink: Color { light ? .black : .white }
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width, height = proxy.size.height
+            ZStack(alignment: .topLeading) {
+                Path { path in
+                    for i in 0...100 {
+                        let t = Double(i) / 100
+                        let point = CGPoint(x: width * t, y: height * (0.62 - 0.42 * sin(t * 2 * .pi - .pi / 2)))
+                        if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
+                    }
+                }.stroke(ink.opacity(0.25), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                Path { path in path.move(to: CGPoint(x: 0, y: height * 0.62)); path.addLine(to: CGPoint(x: width, y: height * 0.62)) }
+                    .stroke(ink.opacity(0.35), lineWidth: 1)
+                if let progress, progress > 0 && progress < 1 {
+                    Circle().fill(ink).frame(width: 10, height: 10)
+                        .shadow(color: ink.opacity(0.7), radius: 5)
+                        .position(x: width * (0.25 + progress * 0.5), y: height * (0.62 - 0.42 * sin(progress * .pi)))
+                }
+            }
+        }.accessibilityLabel("Trajetória do sol entre o nascer e o pôr do sol")
     }
 }
 

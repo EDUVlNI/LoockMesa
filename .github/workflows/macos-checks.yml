@@ -1,8 +1,6 @@
 name: macOS checks
 on:
   workflow_dispatch:
-  push:
-    branches: ["codex/music-lyrics-gallery-fix"]
   pull_request:
 permissions:
   contents: read
@@ -24,6 +22,11 @@ jobs:
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: LoockMesa-0.31.0-Intel
-          path: dist/LoockMesa-0.31.0-Intel.zip
+          name: LoockMesa-0.38.1-Intel
+          path: dist/LoockMesa-0.38.1-Intel.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: widget-previews-0381
+          path: dist/previews/*.png
           if-no-files-found: error

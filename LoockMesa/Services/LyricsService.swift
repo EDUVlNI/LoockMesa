@@ -1,12 +1,25 @@
 import Foundation
 import Combine
 
-/// One request per track, shared by desktop and gallery. No lyric requests for previews alone.
+/// Shared lookup with exact metadata first, then verified search candidates.
 final class LyricsService: ObservableObject {
     static let shared = LyricsService(media: .shared)
     @Published private(set) var document = LyricsDocument()
     @Published private(set) var loading = false
-    @Published var showingLyrics = false
+    @Published private(set) var lookupFailed = false
+    var status: String {
+        if loading { return "Procurando letra…" }
+        if document.available { return document.lines.isEmpty ? "Letra disponível sem sincronização · LRCLIB" : "Letra sincronizada · LRCLIB" }
+        return lookupFailed ? "Não foi possível carregar a letra. Nova tentativa automática." : "Letra não encontrada nesta fonte. O catálogo pode diferir do Spotify."
+    }
+    private var trackKey = ""
+    private var matchedDuration: TimeInterval = 0
+    @Published var showingLyrics = false {
+        didSet {
+            guard showingLyrics != oldValue else { return }
+            media.synchronizeSpotifyClock(enabled: enabled && showingLyrics)
+        }
+    }
     private let media: MusicService
     private let session: URLSession
     private var subscription: AnyCancellable?
@@ -25,53 +38,84 @@ final class LyricsService: ObservableObject {
     func configure(enabled: Bool) {
         guard self.enabled != enabled else { return }
         self.enabled = enabled
+        media.synchronizeSpotifyClock(enabled: enabled && showingLyrics)
         refresh()
     }
     func toggle() { guard document.available else { return }; showingLyrics.toggle() }
     private func refresh() {
         let track = media.track
         let query = LyricsQuery(title: track.title, artist: track.artist, album: track.album, duration: media.position.duration)
-        let nextKey = enabled && track.pid > 0 && query.url != nil ? query.key : ""
+        // Native Spotify and MediaRemote can round track duration differently.
+        // Keep a successfully timed document instead of repeatedly fetching/replacing it.
+        if enabled, track.identity == trackKey, !document.lines.isEmpty,
+           abs(query.duration - matchedDuration) < 2 { return }
+        let nextKey = enabled && track.pid > 0 && query.searchURL != nil ? query.key : ""
         guard key != nextKey || (!loading && Date() >= retryAfter && !key.isEmpty && cache[key] == nil) else { return }
         let changed = key != nextKey
         key = nextKey
         generation = UUID(); request?.cancel(); request = nil; loading = false
-        if changed { document = LyricsDocument(); showingLyrics = false }
-        guard !nextKey.isEmpty, let url = query.url else { document = LyricsDocument(); showingLyrics = false; return }
-        if let saved = cache[nextKey] { document = saved; return }
-        loading = true
+        if changed {
+            let identity = enabled ? track.identity : ""
+            if identity != trackKey { document = LyricsDocument(); showingLyrics = false }
+            trackKey = identity; retryAfter = .distantPast
+        }
+        guard !nextKey.isEmpty else { document = LyricsDocument(); showingLyrics = false; return }
+        if let saved = cache[nextKey] { document = saved; lookupFailed = false; return }
+        matchedDuration = query.duration
+        loading = true; lookupFailed = false
         let token = generation
-        var request = URLRequest(url: url, timeoutInterval: 12)
-        request.setValue("LoockMesa/0.31 (https://github.com/EDUVlNI/LoockMesa)", forHTTPHeaderField: "User-Agent")
-        self.request = session.dataTask(with: request) { [weak self] data, response, error in
-            let status = (response as? HTTPURLResponse)?.statusCode
-            let record: Record? = data.flatMap { bytes in
-                guard bytes.count <= 1_000_000 else { return nil }
-                return try? JSONDecoder().decode(Record.self, from: bytes)
-            }
-            DispatchQueue.main.async {
-                guard let self, self.enabled, self.generation == token, self.key == nextKey else { return }
-                self.loading = false; self.request = nil
-                let result: LyricsDocument
-                if status == 404 { result = LyricsDocument() }
-                else if error == nil, status == 200, let record {
-                    result = record.instrumental == true ? LyricsDocument() : LyricsDocument.parse(synced: record.syncedLyrics, plain: record.plainLyrics)
-                } else {
-                    self.retryAfter = Date().addingTimeInterval(60)
-                    return // A timeout is not a permanent "no lyrics" result.
-                }
-                self.document = result
-                if !result.available { self.showingLyrics = false }
-                self.cache[nextKey] = result
-                self.cacheOrder.removeAll { $0 == nextKey }; self.cacheOrder.append(nextKey)
-                if self.cacheOrder.count > 32 { self.cache.removeValue(forKey: self.cacheOrder.removeFirst()) }
+        guard let url = query.url else { search(query, token: token, fallback: LyricsDocument()); return }
+        fetch(url, token: token) { [weak self] data, status in
+            guard let self else { return }
+            if status == 200, let data, let record = try? JSONDecoder().decode(LyricsRecord.self, from: data) {
+                let result = query.bestDocument(in: [record]) ?? LyricsDocument()
+                if !result.lines.isEmpty { self.finish(result, cacheable: true); return }
+                self.search(query, token: token, fallback: result)
+            } else if status == 404 {
+                self.search(query, token: token, fallback: LyricsDocument())
+            } else {
+                self.finish(LyricsDocument(), cacheable: false)
             }
         }
-        self.request?.resume()
     }
-    private struct Record: Decodable {
-        let instrumental: Bool?
-        let plainLyrics: String?
-        let syncedLyrics: String?
+    private func search(_ query: LyricsQuery, token: UUID, fallback: LyricsDocument, index: Int = 0) {
+        let urls = query.searchURLs
+        guard index < urls.count else { finish(fallback, cacheable: true); return }
+        fetch(urls[index], token: token) { [weak self] data, status in
+            guard let self else { return }
+            if status == 200, let data, let records = try? JSONDecoder().decode([LyricsRecord].self, from: data) {
+                let candidate = query.bestDocument(in: records)
+                if let candidate, !candidate.lines.isEmpty { self.finish(candidate, cacheable: true); return }
+                self.search(query, token: token, fallback: candidate ?? fallback, index: index + 1)
+            } else {
+                self.finish(fallback, cacheable: false)
+            }
+        }
+    }
+    private func fetch(_ url: URL, token: UUID, completion: @escaping (Data?, Int?) -> Void) {
+        var urlRequest = URLRequest(url: url, timeoutInterval: 12)
+        urlRequest.setValue("LoockMesa/0.38.1 (https://github.com/EDUVlNI/LoockMesa)", forHTTPHeaderField: "User-Agent")
+        request = session.dataTask(with: urlRequest) { [weak self] data, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode
+            let safeData = data.flatMap { $0.count <= 4_000_000 ? $0 : nil }
+            DispatchQueue.main.async {
+                guard let self, self.enabled, self.generation == token else { return }
+                self.request = nil
+                completion(error == nil ? safeData : nil, error == nil ? status : nil)
+            }
+        }
+        request?.resume()
+    }
+    private func finish(_ result: LyricsDocument, cacheable: Bool) {
+        // A retry for this same recording must not erase already-working timestamps.
+        let resolved = result.lines.isEmpty && !document.lines.isEmpty ? document : result
+        document = resolved; loading = false; lookupFailed = !cacheable
+        if !resolved.available { showingLyrics = false }
+        // A network failure is not a permanent missing lyric; negative matches expire too.
+        retryAfter = Date().addingTimeInterval(cacheable ? 300 : 60)
+        guard cacheable, resolved.available else { return }
+        cache[key] = resolved
+        cacheOrder.removeAll { $0 == key }; cacheOrder.append(key)
+        if cacheOrder.count > 32 { cache.removeValue(forKey: cacheOrder.removeFirst()) }
     }
 }

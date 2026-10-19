@@ -50,13 +50,21 @@ struct BatteryRing: View {
     var light = false
     var monochrome = false
     var lowPower = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var fraction: CGFloat { CGFloat(min(100, max(0, value ?? 0))) / 100 }
     private var accent: Color { lowPower ? .yellow : monochrome ? ink : Color(red: 0.20, green: 0.88, blue: 0.30) }
     private var ink: Color { light ? .black : .white }
     var body: some View {
         ZStack {
             Circle().stroke(ink.opacity(0.16), lineWidth: dimension * 0.095)
-            Circle().trim(from: 0, to: CGFloat(min(100, max(0, value ?? 0))) / 100)
+            Circle().trim(from: 0, to: fraction)
                 .stroke(accent, style: StrokeStyle(lineWidth: dimension * 0.095, lineCap: .round)).rotationEffect(.degrees(-90))
+            if fraction > 0.04 {
+                Circle().trim(from: max(0, fraction - 0.035), to: fraction)
+                    .stroke(accent, style: StrokeStyle(lineWidth: dimension * 0.095, lineCap: .round))
+                    .shadow(color: .black.opacity(0.32), radius: dimension * 0.025, x: dimension * 0.025, y: dimension * 0.012)
+                    .rotationEffect(.degrees(-90))
+            }
             if freeClip {
                 FreeClipIcon().frame(width: dimension * 0.50, height: dimension * 0.53).foregroundStyle(ink)
             } else if !symbol.isEmpty {
@@ -65,23 +73,25 @@ struct BatteryRing: View {
             }
             if charging {
                 ZStack {
-                    // A silhouette outline follows the bolt, without a circular badge.
-                    ForEach(0..<8, id: \.self) { step in
+                    ForEach(0..<12, id: \.self) { step in
                         Image(systemName: "bolt.fill")
                             .foregroundStyle(CardPalette.base(light: light))
-                            .offset(x: cos(Double(step) * .pi / 4) * 1.5,
-                                    y: sin(Double(step) * .pi / 4) * 1.5)
+                            .offset(x: cos(Double(step) * .pi / 6) * dimension * 0.018,
+                                    y: sin(Double(step) * .pi / 6) * dimension * 0.018)
                     }
                     Image(systemName: "bolt.fill").foregroundStyle(accent)
                 }
-                .font(.system(size: dimension * 0.23, weight: .semibold))
-                .offset(y: -dimension * 0.49)
+                .font(.system(size: dimension * 0.27, weight: .regular))
+                .offset(y: -dimension * 0.50)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.65, anchor: .top)))
                 .accessibilityHidden(true)
             }
         }.frame(width: dimension, height: dimension)
+            .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86), value: charging)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: value)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: lowPower)
     }
 }
-
 /// Uses the compositor's native backdrop, with no wallpaper capture or polling.
 /// A transparent desktop panel lets behindWindow sample the wallpaper underneath.
 private struct FrostIntensityKey: EnvironmentKey { static let defaultValue: Double = 0.7 }

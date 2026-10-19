@@ -14,12 +14,46 @@ struct Checks {
         let params = URLComponents(url: query.url!, resolvingAgainstBaseURL: false)!.queryItems!
         assert(params.first { $0.name == "track_name" }?.value == "A & B?")
         assert(LyricsQuery(title: "X", artist: "Y", album: "", duration: 0).url == nil)
+        let lookup = LyricsQuery(title: "Canção", artist: "Artista", album: "Deluxe", duration: 180)
+        let plainRecord = LyricsRecord(trackName: "Canção", artistName: "Artista", albumName: "Deluxe", duration: 180, plainLyrics: "Texto")
+        let syncedRecord = LyricsRecord(trackName: "Cancao", artistName: "ARTISTA", albumName: "Original", duration: 181, syncedLyrics: "[00:01.00]Linha")
+        let wrongArtist = LyricsRecord(trackName: "Canção", artistName: "Outro", duration: 180, syncedLyrics: "[00:01.00]Errada")
+        let wrongVersion = LyricsRecord(trackName: "Canção - Live", artistName: "Artista", duration: 180, syncedLyrics: "[00:01.00]Ao vivo")
+        let wrongDuration = LyricsRecord(trackName: "Canção", artistName: "Artista", duration: 210, syncedLyrics: "[00:01.00]Longa")
+        assert(lookup.bestDocument(in: [wrongArtist, wrongVersion, wrongDuration]) == nil)
+        assert(lookup.bestDocument(in: [plainRecord, syncedRecord])?.lines.first?.text == "Linha")
+        let featured = LyricsQuery(title: "Canção (feat. Convidado) - 2020 Remaster", artist: "Artista, Convidado", album: "Deluxe", duration: 180)
+        assert(featured.searchURLs.count == 2)
+        assert(featured.bestDocument(in: [syncedRecord])?.lines.first?.text == "Linha")
+        assert(featured.bestDocument(in: [wrongVersion, wrongArtist]) == nil)
+        let uncertain = LyricsRecord(trackName: "Canção", artistName: "Artista", duration: 186, syncedLyrics: "[00:01.00]Texto")
+        assert(lookup.bestDocument(in: [uncertain])?.lines.first?.time == 1)
+        assert(lookup.bestDocument(in: [uncertain])?.lines.first?.text == "Texto")
+        let invalidTimes = LyricsRecord(trackName: "Canção", artistName: "Artista", duration: 180, syncedLyrics: "[04:00.00]Texto")
+        assert(lookup.bestDocument(in: [invalidTimes])?.lines.first?.time == 240)
+        assert(LyricsQuery.searchTitle("Canção - Live") == "Canção - Live")
+        assert(LyricsQuery.searchTitle("Canção (Acoustic)") == "Canção (Acoustic)")
+        print("PASS: guest/remaster matching preserves recording variants and retains supplied timestamps despite duration metadata differences")
+        let unknownLength = LyricsQuery(title: "Canção", artist: "Artista", album: "Deluxe", duration: 0)
+        assert(unknownLength.searchURL != nil && unknownLength.bestDocument(in: [syncedRecord])?.lines.first?.time == 1)
+        assert(unknownLength.bestDocument(in: [syncedRecord])?.lines.first?.text == "Linha")
+        print("PASS: lyrics fallback matches editions, prefers synchronization and rejects wrong artists, versions and durations")
         let epoch = Date(timeIntervalSince1970: 100)
         let position = PlaybackPosition(elapsed: 12, duration: 20, sampledAt: epoch, rate: 1, known: true)
         assert(position.at(epoch.addingTimeInterval(3)) == 15)
         assert(position.at(epoch.addingTimeInterval(50)) == 20)
         var pausedPosition = position; pausedPosition.rate = 0
         assert(pausedPosition.at(epoch.addingTimeInterval(3)) == 12)
+        let sampleEnd = epoch.addingTimeInterval(0.2)
+        let direct = PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: true, started: epoch, ended: sampleEnd)!
+        assert(abs(direct.at(sampleEnd) - 12.1) < 0.001)
+        assert(PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: false, started: epoch, ended: sampleEnd)!.at(sampleEnd) == 12)
+        assert(PlaybackPosition.nativeSample(elapsed: .nan, duration: 20, playing: true, started: epoch, ended: sampleEnd) == nil)
+        assert(PlaybackPosition.nativeSample(elapsed: 12, duration: 20, playing: true, started: epoch, ended: epoch.addingTimeInterval(2)) == nil)
+        for instant in stride(from: -1.0, through: 9.0, by: 0.05) {
+            assert(lyric.activeIndex(at: instant) == lyric.lines.lastIndex(where: { $0.time <= instant }))
+        }
+        print("PASS: native playback latency, paused clock, invalid/stale samples and lyric search boundaries")
         var oldLayout = DeskPreferences()
         oldLayout.widgets.removeAll { $0.kind == .musicLyrics }
         let oldMusic = oldLayout.widgets.first { $0.kind == .music }!
@@ -108,6 +142,40 @@ struct Checks {
         let forecast = try JSONDecoder().decode(ForecastResponse.self, from: data).snapshot()
         assert(forecast.temperature == 21 && forecast.hours.first?.temperature == 21 && forecast.hours.count == 2)
         assert(forecast.days.first?.label == "Hoje")
+        assert(forecast.uv == nil && forecast.sunrise == nil && forecast.airQuality == nil)
+        var solarFixture = forecast
+        solarFixture.sunrise = Date(timeIntervalSince1970: 1000)
+        solarFixture.sunset = Date(timeIntervalSince1970: 2000)
+        solarFixture.nextSunrise = Date(timeIntervalSince1970: 3000)
+        assert(solarFixture.solarProgress(at: Date(timeIntervalSince1970: 1500)) == 0.5)
+        assert(solarFixture.solarEvent(at: Date(timeIntervalSince1970: 2500)).date == solarFixture.nextSunrise)
+        assert(solarFixture.solarProgress(at: Date(timeIntervalSince1970: 2500)) == 1)
+        var extended = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        extended["timezone"] = "America/Sao_Paulo"
+        var extendedHours = extended["hourly"] as! [String: Any]
+        extendedHours["uv_index"] = [1, 3, 5]
+        extendedHours["precipitation_probability"] = [0, 25, 50]
+        extended["hourly"] = extendedHours
+        var extendedDays = extended["daily"] as! [String: Any]
+        extendedDays["sunrise"] = ["2026-09-22T06:00", "2026-09-23T06:01"]
+        extendedDays["sunset"] = ["2026-09-22T18:00"]
+        extended["daily"] = extendedDays
+        let enriched = try JSONDecoder().decode(ForecastResponse.self, from: JSONSerialization.data(withJSONObject: extended)).snapshot()
+        assert(enriched.uv == 3 && enriched.precipitation == 25)
+        assert(enriched.localTime(enriched.sunrise) == "06:00" && enriched.localTime(enriched.nextSunrise) == "06:01")
+
+        assert(LyricsDocument.presentationTime(12, playing: false) == 12)
+        assert(abs(LyricsDocument.presentationTime(12, playing: true) - 12) < 0.001)
+        assert(WeatherSnapshot.symbol(55) == "cloud.drizzle.fill")
+        assert(WeatherSnapshot.symbol(65) == "cloud.heavyrain.fill")
+        var eventFixture = extended
+        var eventDays = extendedDays
+        eventDays["sunset"] = ["2026-09-22T14:30"]
+        eventFixture["daily"] = eventDays
+        let eventForecast = try JSONDecoder().decode(ForecastResponse.self, from: JSONSerialization.data(withJSONObject: eventFixture)).snapshot()
+        assert(eventForecast.hours.map(\.label) == ["14", "14:30", "15"])
+        assert(eventForecast.hours[1].symbol == "sunset.fill" && eventForecast.hours[1].temperature == 22)
+        assert(eventForecast.hours[0].eventSymbol == nil)
         let empty = Data(#"{"current":{"time":"2026-09-22T14:15","temperature_2m":21,"weather_code":2},"hourly":{"time":[],"temperature_2m":[],"weather_code":[]},"daily":{"time":[],"temperature_2m_min":[],"temperature_2m_max":[],"weather_code":[]}}"#.utf8)
         do { _ = try JSONDecoder().decode(ForecastResponse.self, from: empty).snapshot(); assertionFailure("Empty daily must be rejected") } catch {}
         let nightData = Data(String(data: data, encoding: .utf8)!.replacingOccurrences(of: "\"weather_code\":2}", with: "\"weather_code\":45,\"is_day\":0}").utf8)
@@ -158,8 +226,8 @@ struct Checks {
         var legacy = DeskPreferences()
         legacy.widgets = [WidgetItem(kind: .macBattery, size: .large, x: 200, y: 700), WidgetItem(kind: .weather)]
         legacy.normalize()
-        assert(!legacy.widgets.contains { $0.kind == .macBattery })
-        assert(legacy.widgets.first { $0.kind == .headphones }?.x == 200)
+        assert(legacy.widgets.contains { $0.kind == .macBattery })
+        assert(legacy.widgets.first { $0.kind == .macBattery }?.x == 200)
         let moved = CGRect(x: 560, y: 496, width: 164, height: 164)
         let original = [PlacementRequest(kind: .headphones, size: preferred.size, preferred: preferred), PlacementRequest(kind: .clock, size: moved.size, preferred: moved)]
         let stable = DesktopGrid.arrange(original, screens: [bounds])
