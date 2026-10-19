@@ -100,6 +100,9 @@ final class WidgetHost: NSHostingView<WidgetFace> {
     private var lyricSubscriptions = Set<AnyCancellable>()
     func observeLyricsControls() {
         guard rootView.kind == .musicLyrics, lyricSubscriptions.isEmpty else { return }
+        LyricsService.shared.$loading.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
+        LyricsService.shared.$lookupFailed.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
+        rootView.music.$lyricsClockStatus.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
         LyricsService.shared.$document.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
         LyricsService.shared.$showingLyrics.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
         rootView.music.$track.receive(on: RunLoop.main).sink { [weak self] _ in self?.needsLayout = true }.store(in: &lyricSubscriptions)
@@ -173,6 +176,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
             scrubView.frame = progressRect
             for (index, button) in lyricsButtons.enumerated() {
                 button.isHidden = editing
+                if index == 0 { button.toolTip = LyricsService.shared.status + "\n" + rootView.music.lyricsClockStatus }
                 button.isEnabled = index == 0 ? LyricsService.shared.document.available : rootView.music.track.pid > 0
                 var rect = index == 0 ? geometry.bubble : geometry.control(index - 1)
                 if !isFlipped { rect.origin.y = bounds.height - rect.maxY }

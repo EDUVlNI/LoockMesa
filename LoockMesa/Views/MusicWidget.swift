@@ -219,8 +219,7 @@ struct MusicOptions: View {
 struct AlbumColorGradient: View {
     @ObservedObject var media: MusicService
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var colors: [Color] = [.init(red: 0.43, green: 0.23, blue: 0.61),
-        .init(red: 0.16, green: 0.48, blue: 0.44), .init(red: 0.53, green: 0.31, blue: 0.57)]
+    @State private var colors: [Color] = Array(repeating: Color(white: 0.22), count: 3)
     @State private var centers: [UnitPoint] = [.topLeading, .bottomTrailing, .topTrailing]
     @State private var lastIdentity: String?
     @State private var sampledArtwork: NSImage?
@@ -245,7 +244,7 @@ struct AlbumColorGradient: View {
         .onReceive(media.$track) { track in
             if lastIdentity != track.identity {
                 lastIdentity = track.identity
-                // Disjoint quadrants keep complementary colors visible instead of overlapping.
+                // Disjoint quadrants keep album colors visible instead of overlapping.
                 let quadrants: [(CGFloat, CGFloat)] = [(0, 0), (0.65, 0), (0, 0.65), (0.65, 0.65)]
                 centers = quadrants.shuffled().prefix(3).map { point in
                     UnitPoint(x: point.0 + CGFloat.random(in: 0...0.35),
@@ -254,37 +253,51 @@ struct AlbumColorGradient: View {
             }
             guard sampledArtwork !== track.artwork else { return }
             sampledArtwork = track.artwork
-            colors = Self.palette(from: track.artwork)
+            colors = ArtworkPalette.colors(from: track.artwork).map { Color(nsColor: $0) }
         }
         .accessibilityHidden(true)
     }
-    private static func palette(from image: NSImage?) -> [Color] {
-        var hue: CGFloat = 0.74
-        var saturation: CGFloat = 0.48
-        if let image,
-           let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 4, pixelsHigh: 4,
-               bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-               colorSpaceName: .deviceRGB, bytesPerRow: 16, bitsPerPixel: 32),
-           let context = NSGraphicsContext(bitmapImageRep: bitmap) {
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            context.imageInterpolation = .high
-            image.draw(in: CGRect(x: 0, y: 0, width: 4, height: 4))
-            NSGraphicsContext.restoreGraphicsState()
-            var bestScore: CGFloat = -1
-            for y in 0..<4 {
-                for x in 0..<4 {
-                    guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-                    let score = color.saturationComponent * color.brightnessComponent * color.alphaComponent
-                    if score > bestScore && color.saturationComponent > 0.08 {
-                        bestScore = score; hue = color.hueComponent; saturation = color.saturationComponent
-                    }
-                }
-            }
+}
+
+/// Population-weighted colors sampled from the cover, never generated complementary hues.
+enum ArtworkPalette {
+    static func colors(from image: NSImage?) -> [NSColor] {
+        let fallback = Array(repeating: NSColor(srgbRed: 0.22, green: 0.22, blue: 0.22, alpha: 1), count: 3)
+        guard let image, let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 24, pixelsHigh: 24,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 96, bitsPerPixel: 32),
+            let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return fallback }
+        NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = context
+        context.cgContext.clear(CGRect(x: 0, y: 0, width: 24, height: 24))
+        context.imageInterpolation = .high
+        image.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
+        NSGraphicsContext.restoreGraphicsState()
+        var buckets: [Int: (count: Int, r: CGFloat, g: CGFloat, b: CGFloat)] = [:]
+        for y in 0..<24 { for x in 0..<24 {
+            guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.8 else { continue }
+            let r = c.redComponent, g = c.greenComponent, b = c.blueComponent
+            let key = (min(7, Int(r * 8)) << 6) | (min(7, Int(g * 8)) << 3) | min(7, Int(b * 8))
+            let old = buckets[key] ?? (0, 0, 0, 0)
+            buckets[key] = (old.count + 1, old.r + r, old.g + g, old.b + b)
+        } }
+        let sorted = buckets.sorted { $0.value.count == $1.value.count ? $0.key < $1.key : $0.value.count > $1.value.count }
+        var chosen: [NSColor] = []
+        for (_, bucket) in sorted {
+            guard chosen.isEmpty || bucket.count >= 8 else { continue }
+            let n = CGFloat(bucket.count)
+            let c = NSColor(srgbRed: bucket.r / n, green: bucket.g / n, blue: bucket.b / n, alpha: 1)
+            let distinct = chosen.allSatisfy { abs($0.redComponent - c.redComponent) + abs($0.greenComponent - c.greenComponent) + abs($0.blueComponent - c.blueComponent) > 0.35 }
+            guard distinct else { continue }
+            chosen.append(c)
+            if chosen.count == 3 { break }
         }
-        let sat = min(0.82, max(0.52, saturation * 1.08))
-        return [Color(hue: Double(hue), saturation: Double(sat), brightness: 0.61),
-                Color(hue: Double((hue + 0.5).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.90), brightness: 0.53),
-                Color(hue: Double((hue + 0.08).truncatingRemainder(dividingBy: 1)), saturation: Double(sat * 0.85), brightness: 0.69)]
+        guard let first = chosen.first else { return fallback }
+        while chosen.count < 3 { chosen.append(first) }
+        return chosen.map { c in
+            // Uniform RGB scaling preserves hue and saturation while protecting white text.
+            let maximum = max(c.redComponent, max(c.greenComponent, c.blueComponent))
+            let scale = maximum > 0.72 ? 0.72 / maximum : 1
+            return NSColor(srgbRed: c.redComponent * scale, green: c.greenComponent * scale, blue: c.blueComponent * scale, alpha: 1)
+        }
     }
 }

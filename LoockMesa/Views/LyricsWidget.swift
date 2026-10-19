@@ -57,7 +57,8 @@ struct LyricsWidget: View {
                 }.buttonStyle(.plain)
                     .opacity(lyrics.document.available ? 0.9 : 0.25)
                     .disabled(!lyrics.document.available)
-                    .accessibilityLabel(lyrics.document.available ? "Mostrar ou ocultar letras" : "Letra indisponível")
+                    .help(lyrics.status + "\n" + media.lyricsClockStatus)
+                    .accessibilityLabel(lyrics.status)
             }
             ForEach(0..<3, id: \.self) { index in
                 placed(layout.control(index)) {

@@ -9,9 +9,9 @@ struct LyricsDocument: Equatable {
     var lines: [LyricLine] = []
     var plain = ""
     var available: Bool { !lines.isEmpty || !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    /// Start the visual transition slightly before the lyric timestamp so emphasis lands on the beat.
+    /// Follow the supplied timestamp without imposing one global offset on every recording.
     static func presentationTime(_ elapsed: TimeInterval, playing: Bool) -> TimeInterval {
-        elapsed + (playing ? 0.18 : 0)
+        elapsed
     }
     func activeIndex(at time: TimeInterval) -> Int? {
         guard time.isFinite else { return nil }
@@ -66,35 +66,59 @@ struct LyricsQuery: Equatable {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty }.joined(separator: " ")
     }
+    /// Remove only edition/guest annotations; live, remix and acoustic remain significant.
+    static func searchTitle(_ value: String) -> String {
+        var result = value
+        for pattern in [#"(?i)\s*[\(\[]\s*(?:feat\.?|ft\.?|featuring)\s+[^\)\]]+[\)\]]"#,
+                        #"(?i)\s*[\(\[]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\s*[\)\]]"#,
+                        #"(?i)\s*[-–—]\s*(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?\s*$"#,
+                        #"(?i)\s+(?:feat\.?|ft\.?|featuring)\s+.*$"#] {
+            result = result.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    static func leadArtist(_ value: String) -> String {
+        value.components(separatedBy: ",").first!.replacingOccurrences(
+            of: #"(?i)\s+(?:feat\.?|ft\.?|featuring)\s+.*$"#, with: "", options: .regularExpression)
+    }
+    var searchURLs: [URL] {
+        guard let original = searchURL else { return [] }
+        var urls = [original]
+        let cleaned = Self.searchTitle(title)
+        if cleaned != title {
+            var alternate = URLComponents(string: "https://lrclib.net/api/search")!
+            alternate.queryItems = [URLQueryItem(name: "track_name", value: cleaned), URLQueryItem(name: "artist_name", value: Self.leadArtist(artist))]
+            if let url = alternate.url { urls.append(url) }
+        }
+        return urls
+    }
     func acceptsArtist(_ candidate: String) -> Bool {
-        let expected = Self.normalized(artist), actual = Self.normalized(candidate)
+        let actual = Self.normalized(candidate)
         guard !actual.isEmpty else { return false }
-        if expected == actual { return true }
-        // Spotify can publish multiple artists while LRCLIB lists just the lead.
-        let lead = artist.components(separatedBy: ",").first ?? artist
-        return Self.normalized(lead) == actual
+        return Self.normalized(artist) == actual || Self.normalized(Self.leadArtist(artist)) == Self.normalized(Self.leadArtist(candidate))
     }
     func bestDocument(in records: [LyricsRecord]) -> LyricsDocument? {
         var best: (Double, LyricsDocument)?
         for record in records {
-            guard Self.normalized(record.trackName ?? "") == Self.normalized(title),
+            guard Self.normalized(Self.searchTitle(record.trackName ?? "")) == Self.normalized(Self.searchTitle(title)),
                   acceptsArtist(record.artistName ?? ""), record.instrumental != true else { continue }
             let knownDuration = duration.isFinite && duration > 0
-            let delta = abs((record.duration ?? 0) - duration)
-            if knownDuration {
-                guard let candidateDuration = record.duration, candidateDuration.isFinite,
-                      candidateDuration > 0, delta <= 3 else { continue }
-            }
+            let candidateDuration = record.duration ?? 0
+            let delta = abs(candidateDuration - duration)
+            // Very different lengths usually indicate a different recording.
+            if knownDuration && candidateDuration > 0 && delta > 10 { continue }
             var document = record.document
             guard document.available else { continue }
-            if !knownDuration {
-                // Without duration we can show text but cannot verify matching timing.
+            let timed = knownDuration && candidateDuration.isFinite && candidateDuration > 0 && delta <= 2
+                && (document.lines.last?.time ?? 0) <= duration + 1
+            if !timed {
                 if document.plain.isEmpty { document.plain = document.lines.map(\.text).joined(separator: "\n") }
                 document.lines = []
             }
             let score = (document.lines.isEmpty ? 0.0 : 100.0)
                 + (Self.normalized(record.albumName ?? "") == Self.normalized(album) ? 10 : 0)
-                - (knownDuration ? delta : 0)
+                + (Self.normalized(record.trackName ?? "") == Self.normalized(title) ? 5 : 0)
+                - (knownDuration && candidateDuration > 0 ? delta : 0)
             if best == nil || score > best!.0 { best = (score, document) }
         }
         return best?.1

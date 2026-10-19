@@ -4,6 +4,19 @@ import AppKit
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
         _ = NSApplication.shared
+        let colorFixture = NSImage(size: NSSize(width: 48, height: 48))
+        colorFixture.lockFocus()
+        NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 24, height: 48).fill()
+        NSColor.blue.setFill(); NSRect(x: 24, y: 0, width: 24, height: 48).fill()
+        colorFixture.unlockFocus()
+        let palette = ArtworkPalette.colors(from: colorFixture)
+        precondition(palette.contains { $0.redComponent > 0.5 && $0.blueComponent < 0.1 })
+        precondition(palette.contains { $0.blueComponent > 0.5 && $0.redComponent < 0.1 })
+        precondition(palette.allSatisfy { $0.greenComponent < 0.1 }, "Palette must not invent complementary colors")
+        let neutralFixture = NSImage(size: NSSize(width: 24, height: 24))
+        neutralFixture.lockFocus(); NSColor.gray.setFill(); NSRect(x: 0, y: 0, width: 24, height: 24).fill(); neutralFixture.unlockFocus()
+        precondition(ArtworkPalette.colors(from: neutralFixture).allSatisfy { abs($0.redComponent - $0.greenComponent) < 0.02 && abs($0.greenComponent - $0.blueComponent) < 0.02 })
+        print("PASS: artwork palette preserves real colors and neutral covers")
         let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory(), isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         func analog(_ inactive: Bool) -> some View {

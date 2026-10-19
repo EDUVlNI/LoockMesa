@@ -45,6 +45,7 @@ final class MusicService: ObservableObject {
     private var setElapsedTime: ((Double) -> Void)?
     private var usesNativePlayerSeeking = false
     private let seekQueue = DispatchQueue(label: "LoockMesa.playerSeeking", qos: .userInitiated)
+    @Published private(set) var lyricsClockStatus = "Tempo informado pelo player"
     private var spotifyClockTimer: Timer?
     private var spotifyClockEnabled = false
     private var spotifyClockBusy = false
@@ -93,6 +94,7 @@ final class MusicService: ObservableObject {
             let elapsed = result?.atIndex(4)?.doubleValue ?? -1
             let duration = (result?.atIndex(5)?.doubleValue ?? 0) / 1000
             let playing = result?.atIndex(6)?.booleanValue ?? false
+            let denied = (error?["NSAppleScriptErrorNumber"] as? NSNumber)?.intValue == -1743
             let valid = error == nil && result?.numberOfItems == 6 && end.timeIntervalSince(start) < 1
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -101,13 +103,15 @@ final class MusicService: ObservableObject {
                       self.track.identity == identity, self.track.pid == pid, self.scrubPosition == nil else { return }
                 guard valid, title == self.track.title, artist == self.track.artist, album == self.track.album,
                       elapsed.isFinite, elapsed >= 0, duration.isFinite, duration > 0 else {
-                    self.spotifyClockRetry = Date().addingTimeInterval(30); return
+                    self.lyricsClockStatus = denied ? "Autorize o Spotify em Privacidade e Segurança → Automação para ler o tempo diretamente." : "Tempo do player; leitura direta do Spotify temporariamente indisponível."
+                    self.spotifyClockRetry = Date().addingTimeInterval(denied ? 30 : 2); return
                 }
                 // Timestamp at the midpoint of the native query compensates transport latency.
                 guard let sample = PlaybackPosition.nativeSample(elapsed: elapsed, duration: duration,
                     playing: playing, started: start, ended: end) else { return }
                 self.position = sample
                 self.lastSpotifySample = Date()
+                if self.lyricsClockStatus != "Tempo lido diretamente do Spotify" { self.lyricsClockStatus = "Tempo lido diretamente do Spotify" }
                 if self.track.playing != playing { self.track.playing = playing }
             }
         }
@@ -312,6 +316,7 @@ final class MusicService: ObservableObject {
     }
 
     func stop() {
+        lyricsClockStatus = "Tempo informado pelo player"
         spotifyClockEpoch &+= 1; lastSpotifySample = .distantPast
         spotifyClockTimer?.invalidate(); spotifyClockTimer = nil
         generation &+= 1
