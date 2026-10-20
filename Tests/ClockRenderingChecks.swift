@@ -3,6 +3,7 @@ import AppKit
 
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
+        setbuf(stdout, nil)
         _ = NSApplication.shared
         let colorFixture = NSImage(size: NSSize(width: 48, height: 48))
         colorFixture.lockFocus()

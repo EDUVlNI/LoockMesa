@@ -378,7 +378,9 @@ struct GalleryMosaicLayout: Layout {
     private let unit: CGFloat = 164 * 0.72
     private let gap: CGFloat = 16 * 0.72
     private func positions(width: CGFloat, count: Int) -> (CGSize, [CGPoint]) {
-        let columns = max(2, Int((width + gap) / (unit + gap)))
+        // SwiftUI probes custom layouts with zero and infinite proposals.
+        let width = width.isFinite && width > 0 ? width : 700
+        let columns = max(2, min(12, Int((width + gap) / (unit + gap))))
         var occupied = Set<Int>(), points: [CGPoint] = []
         var lastRow = 0
         for index in 0..<count {
