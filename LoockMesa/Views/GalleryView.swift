@@ -15,6 +15,7 @@ import AppKit
     @State private var general = false
     @State private var allWidgets = true
     @State private var search = ""
+    @State private var suggestions = Array(WidgetKind.allCases.shuffled().prefix(6))
     @State private var integrationPage: IntegrationSettingsView.Page?
     @ObservedObject private var integration = LumeCoordinator.shared
     private var categories: [WidgetKind] { WidgetKind.allCases.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) } }
@@ -32,6 +33,7 @@ import AppKit
                                 }
                             }
                             Divider().padding(.vertical, 8)
+                            Text("AJUSTES DO APP").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 4)
                             ForEach(IntegrationSettingsView.Page.allCases.filter { search.isEmpty || $0.rawValue.localizedCaseInsensitiveContains(search) }) { page in
                                 sidebarRow(page == .music ? "Player flutuante" : page.rawValue, symbol: page.symbol, color: page.color, active: integrationPage == page) { integrationPage = page }
                             }
@@ -47,6 +49,23 @@ import AppKit
                             IntegrationSettingsView(coordinator: integration, model: integration.capsule.model, hud: integration.hud, corners: integration.corners, player: integration.player, selected: page)
                         } else if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
                         else {
+                            if allWidgets && search.isEmpty {
+                                Text("Sugestões").font(.title2.bold())
+                                GalleryFlowLayout(spacing: 18) {
+                                    ForEach(suggestions) { kind in
+                                        previewTile(kind, variant: store.item(kind).variant ?? (kind == .calendar ? "date" : kind == .clock ? "dated" : "standard"), size: [.weather, .music, .musicLyrics].contains(kind) ? .medium : .small, compact: true)
+                                    }
+                                }
+                                Divider()
+                                Text("Úteis no dia a dia").font(.title2.bold())
+                                GalleryFlowLayout(spacing: 18) {
+                                    ForEach([WidgetKind.headphones, .weather, .calendar, .reminders, .musicLyrics]) { kind in
+                                        previewTile(kind, variant: kind == .calendar ? "date" : "standard", size: .small, compact: true)
+                                    }
+                                }
+                                Divider()
+                                Text("Todos os widgets").font(.title2.bold())
+                            }
                             ForEach(allWidgets ? categories : [selected]) { kind in
                                 catalogue(kind)
                             }
@@ -81,50 +100,67 @@ import AppKit
             .onReceive(NotificationCenter.default.publisher(for: .loockSelectMusic)) { _ in integrationPage = nil; selected = .music; general = false; allWidgets = false }
     }
     private func catalogue(_ kind: WidgetKind) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 20) {
             Text(kind.title).font(.headline)
-            ForEach(variants(kind), id: \.self) { variant in
-                Text(variantTitle(kind, variant)).font(.subheadline).foregroundStyle(.secondary)
-                GeometryReader { proxy in
-                    let scale = min(0.75, max(0.25, (proxy.size.width - 32) / 852))
-                    HStack(alignment: .bottom, spacing: 16) {
-                        ForEach(availableSizes(kind, variant)) { size in
-                            VStack(spacing: 10) {
-                                DraggableWidgetPreview(face: WidgetFace(variant: variant, entrance: previewEntrance, preview: true, kind: kind, size: size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda), payload: GalleryWidgetPayload(kind: kind, size: size, variant: variant))
-                                    .frame(width: size.dimensions.width, height: size.dimensions.height)
-                                    .scaleEffect(scale).frame(width: size.dimensions.width * scale, height: size.dimensions.height * scale)
-                                    .accessibilityLabel("Arrastar " + kind.title + " " + size.rawValue)
-                                    .overlay(alignment: .topLeading) {
-                                        Button {
-                                            let screen = NSScreen.main?.visibleFrame ?? .zero
-                                            let point = CGPoint(x: screen.minX + size.dimensions.width / 2 + 24, y: screen.maxY - size.dimensions.height / 2 - 24)
-                                            NotificationCenter.default.post(name: .loockGalleryDrop, object: GalleryWidgetPayload(kind: kind, size: size, variant: variant), userInfo: ["point": point])
-                                        } label: {
-                                            Image(systemName: "plus").font(.system(size: 14, weight: .medium)).foregroundStyle(.white)
-                                                .frame(width: 26, height: 26).background(Color.green, in: Circle())
-                                        }.buttonStyle(.plain).offset(x: -6, y: -6)
-                                            .accessibilityLabel("Adicionar " + kind.title + " " + size.rawValue)
-                                    }
-
-                                Text(size.rawValue).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                }.frame(height: 285)
+            GalleryFlowLayout(spacing: 24) {
+                ForEach(variants(kind), id: \.self) { variant in
+                    ForEach(availableSizes(kind, variant)) { size in
+                        previewTile(kind, variant: variant, size: size)
+                    }
+                }
             }
             Divider()
         }
     }
+    private func previewTile(_ kind: WidgetKind, variant: String, size: WidgetSize, compact: Bool = false) -> some View {
+        let scale: CGFloat = compact ? 0.66 : 0.72
+        let width = size.dimensions.width * scale
+        return VStack(spacing: 10) {
+            DraggableWidgetPreview(face: WidgetFace(variant: variant, entrance: previewEntrance, preview: true, kind: kind, size: size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda), payload: GalleryWidgetPayload(kind: kind, size: size, variant: variant))
+                .frame(width: size.dimensions.width, height: size.dimensions.height)
+                .scaleEffect(scale).frame(width: width, height: size.dimensions.height * scale)
+                .accessibilityLabel("Arrastar " + kind.title + " " + size.rawValue)
+                .overlay(alignment: .topLeading) {
+                    Button {
+                        let screen = NSScreen.main?.visibleFrame ?? .zero
+                        let point = CGPoint(x: screen.minX + size.dimensions.width / 2 + 24, y: screen.maxY - size.dimensions.height / 2 - 24)
+                        NotificationCenter.default.post(name: .loockGalleryDrop, object: GalleryWidgetPayload(kind: kind, size: size, variant: variant), userInfo: ["point": point])
+                    } label: {
+                        Image(systemName: "plus").font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                            .frame(width: 23, height: 23).background(Color.green, in: Circle())
+                    }.buttonStyle(.plain).offset(x: -4, y: -4)
+                        .accessibilityLabel("Adicionar " + kind.title + " " + size.rawValue)
+                }
+            VStack(spacing: 4) {
+                Text(variantTitle(kind, variant)).font(.system(size: 12, weight: .semibold))
+                Text(compact ? kind.title : description(kind, variant) + " · " + size.rawValue)
+                    .font(.system(size: 10)).foregroundStyle(.secondary).multilineTextAlignment(.center).lineLimit(2)
+            }.frame(height: compact ? 32 : 44, alignment: .top)
+        }.frame(width: max(140, width)).padding(5)
+    }
     private func variants(_ kind: WidgetKind) -> [String] {
-        kind == .weather ? ["standard", "daily", "details", "sun"] : kind == .clock ? ["analog", "digital"] : kind == .calendar ? ["month", "date"] : ["standard"]
+        kind == .weather ? ["standard", "daily", "details", "sun"] : kind == .clock ? ["dated", "digital", "extended", "analog"] : kind == .calendar ? ["date", "schedule", "month"] : ["standard"]
     }
     private func availableSizes(_ kind: WidgetKind, _ variant: String) -> [WidgetSize] {
-        if kind == .calendar && variant == "date" { return [.medium] }
+        if kind == .calendar && variant == "date" { return [.small, .medium] }
+        if kind == .calendar && variant == "schedule" { return [.small, .medium, .wide, .extraWide] }
+        if kind == .clock && ["dated", "extended"].contains(variant) { return [.small, .large] }
         if kind == .clock && variant == "digital" { return [.small, .medium] }
         return WidgetSize.allCases
     }
+    private func description(_ kind: WidgetKind, _ variant: String) -> String {
+        switch kind {
+        case .clock: return variant == "dated" ? "Hora e data" : "Hora atual"
+        case .calendar: return variant == "schedule" ? "Compromissos por horário" : variant == "date" ? "Data e próximo evento" : "Mês e compromissos"
+        case .weather: return "Previsão para sua cidade"
+        case .headphones, .macBattery: return "Carga dos dispositivos"
+        case .music, .musicLyrics: return "Acompanhe sua música"
+        case .notes: return "Suas anotações"
+        default: return "Seu dia organizado"
+        }
+    }
     private func variantTitle(_ kind: WidgetKind, _ variant: String) -> String {
-        switch variant { case "daily": return "Previsão diária"; case "details": return "Detalhes do clima"; case "sun": return "Nascer e pôr do sol"; case "analog": return "Analógico"; case "digital": return "Digital"; case "month": return "Mês e eventos"; case "date": return "Data"; default: return kind.title }
+        switch variant { case "daily": return "Previsão diária"; case "details": return "Detalhes do clima"; case "sun": return "Nascer e pôr do sol"; case "analog": return "Analógico"; case "dated": return "Relógio com data"; case "extended": return "Analógico alongado"; case "digital": return "Digital"; case "month": return "Mês e eventos"; case "date": return "Data"; case "schedule": return "Agenda"; default: return kind.title }
     }
     private func settingToggle(_ title: String, value: Binding<Bool>) -> some View {
         HStack { Text(title); Spacer(); Toggle(title, isOn: value).labelsHidden().toggleStyle(.switch) }
@@ -299,4 +335,30 @@ private struct SettingsSidebarMaterial: NSViewRepresentable {
         return view
     }
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
+}
+
+/// Wraps differently sized previews without fixed-height empty rows.
+struct GalleryFlowLayout: Layout {
+    var spacing: CGFloat = 20
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> (CGSize, [CGPoint]) {
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x > 0 && x + size.width > width { x = 0; y += rowHeight + spacing; rowHeight = 0 }
+            positions.append(CGPoint(x: x, y: y))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (CGSize(width: width, height: y + rowHeight), positions)
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(subviews, width: proposal.width ?? 700).0
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let positions = arrange(subviews, width: bounds.width).1
+        for index in subviews.indices {
+            subviews[index].place(at: CGPoint(x: bounds.minX + positions[index].x, y: bounds.minY + positions[index].y), anchor: .topLeading, proposal: .unspecified)
+        }
+    }
 }

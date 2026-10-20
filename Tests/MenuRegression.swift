@@ -4,6 +4,17 @@ import Combine
 @main
 struct MenuChecks {
     @MainActor static func main() {
+        let now = Date()
+        let overlapping = [CalendarEntry(id: "a", title: "A", start: now, end: now.addingTimeInterval(3600), allDay: false), CalendarEntry(id: "b", title: "B", start: now.addingTimeInterval(1800), end: now.addingTimeInterval(5400), allDay: false), CalendarEntry(id: "c", title: "C", start: now.addingTimeInterval(3600), end: now.addingTimeInterval(7200), allDay: false)]
+        precondition(AgendaTimeline.lane(for: overlapping[0], among: overlapping).index == 0)
+        precondition(AgendaTimeline.lane(for: overlapping[1], among: overlapping).index == 1)
+        precondition(AgendaTimeline.lane(for: overlapping[2], among: overlapping).index == 0)
+        var preferences = DeskPreferences()
+        preferences.widgets = [WidgetItem(kind: .calendar, variant: "date", size: .medium, x: 42, y: 100)]
+        preferences.normalize()
+        precondition(preferences.widgets.first!.x == 42 && preferences.widgets.first!.size == .medium)
+        preferences.widgets[0].size = .small; preferences.normalize()
+        precondition(preferences.widgets[0].size == .small)
         let screen = CGRect(x: -1920, y: -100, width: 1920, height: 1080)
         let size = CGSize(width: 300, height: 300)
         precondition(HUDPosition.left.origin(screen: screen, size: size).x == -1920)

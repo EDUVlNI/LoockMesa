@@ -201,6 +201,7 @@ struct ModernClockWidget: View {
     let digital: Bool
     var dark: Bool
     var frosted: Bool
+    var dialStyle = "analog"
     var lowPower = false
     var desktopInactive = false
     @StateObject private var playback = ClockPlaybackState()
@@ -211,7 +212,12 @@ struct ModernClockWidget: View {
             let side = min(geometry.size.width, geometry.size.height)
             let ink: Color = dark ? .white : .black
             ZStack {
-                ClockDialDrawing(size: size, digital: digital, ink: ink, angles: playback.angles)
+                ClockDialDrawing(size: size, digital: digital, ink: ink, angles: playback.angles, elongated: dialStyle == "extended" || dialStyle == "dated")
+                if dialStyle == "dated" {
+                    Text(playback.snapshot.date, format: .dateTime.weekday(.abbreviated).day())
+                        .textCase(.uppercase).font(.system(size: side * 0.065, weight: .bold)).foregroundStyle(.orange)
+                        .offset(y: side * 0.15)
+                }
                 if digital {
                     AnimatedValue(value: playback.snapshot.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
                         .font(ClockTypography.digital(size: side * (size == .medium ? 0.70 : 0.64)))
@@ -242,7 +248,7 @@ struct ClockFaceGeometry {
     private static let medium = make(.medium)
     private static let large = make(.large)
     static func forSize(_ size: WidgetSize) -> Self {
-        switch size { case .small: return small; case .medium: return medium; case .large: return large }
+        switch size { case .small: return small; case .medium: return medium; case .large: return large; case .wide, .extraWide: return make(size) }
     }
 }
 
@@ -251,6 +257,7 @@ struct ClockDialDrawing: View, Animatable {
     let digital: Bool
     let ink: Color
     var angles: ClockHandAngles
+    var elongated = false
     var animatableData: AnimatablePair<Double, AnimatablePair<Double, Double>> {
         get { AnimatablePair(angles.hour, AnimatablePair(angles.minute, angles.second)) }
         set { angles = ClockHandAngles(hour: newValue.first, minute: newValue.second.first, second: newValue.second.second) }
@@ -267,7 +274,7 @@ struct ClockDialDrawing: View, Animatable {
                 let mark = geometry.marks[i]
                 let active = max(0, 1 - abs(second - Double(i)))
                 let elapsed = Double(i) <= second
-                let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? 0.050 : 0.027))
+                let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? (elongated && i % 15 != 0 ? 0.19 : 0.050) : 0.027))
                 let length = baseLength + side * CGFloat(active) * 0.016
                 var path = Path()
                 path.move(to: CGPoint(x: mark.point.x - mark.normal.dx * length, y: mark.point.y - mark.normal.dy * length))

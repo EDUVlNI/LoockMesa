@@ -82,7 +82,8 @@ final class AgendaService: ObservableObject {
     private var timer: Timer?
     private var paused = false
     func setPaused(_ value: Bool) { guard paused != value else { return }; paused = value; if !value { refresh() } }
-    init() {
+    init(preview: [CalendarEntry]? = nil) {
+        if let preview { entries = preview; connected = true; status = "Nenhum evento"; return }
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in self?.refresh() }
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in self?.refresh() }
         timer?.tolerance = 30
@@ -104,9 +105,10 @@ final class AgendaService: ObservableObject {
         }
         connected = true
         let now = Date(); let end = Calendar.current.date(byAdding: .day, value: 7, to: now)!
-        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        entries = store.events(matching: predicate).filter { $0.endDate > now }.sorted { $0.startDate < $1.startDate }.prefix(8).enumerated().map { index, event in
-            CalendarEntry(id: (event.eventIdentifier ?? "event") + "-\(index)", title: event.title?.isEmpty == false ? event.title! : "Evento sem título", start: event.startDate, end: event.endDate, allDay: event.isAllDay)
+        let predicate = store.predicateForEvents(withStart: Calendar.current.startOfDay(for: now), end: end, calendars: nil)
+        entries = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }.prefix(250).enumerated().map { index, event in
+            let color = NSColor(cgColor: event.calendar.cgColor)?.usingColorSpace(.deviceRGB) ?? .systemRed
+            return CalendarEntry(id: (event.eventIdentifier ?? "event") + "-\(index)", title: event.title?.isEmpty == false ? event.title! : "Evento sem título", start: event.startDate, end: event.endDate, allDay: event.isAllDay, red: Double(color.redComponent), green: Double(color.greenComponent), blue: Double(color.blueComponent))
         }
         status = entries.isEmpty ? "Nenhum evento nos próximos 7 dias" : "Agenda do Mac · próximos 7 dias"
     }

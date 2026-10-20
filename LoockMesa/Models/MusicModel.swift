@@ -31,14 +31,14 @@ struct MusicLayout {
         switch size {
         case .small: return CGRect(x: 15, y: 15, width: 76, height: 76)
         case .medium: return CGRect(x: 16, y: 15, width: 48, height: 48)
-        case .large: return CGRect(x: 20, y: 23, width: 100, height: 100)
+        case .large, .wide, .extraWide: return CGRect(x: 20, y: 23, width: 100, height: 100)
         }
     }
     var play: CGRect {
         switch size {
         case .small: return CGRect(x: 111, y: 109, width: 38, height: 38)
         case .medium: return CGRect(x: 258, y: 19, width: 40, height: 40)
-        case .large: return CGRect(x: 274, y: 59, width: 48, height: 48)
+        case .large, .wide, .extraWide: return CGRect(x: 274, y: 59, width: 48, height: 48)
         }
     }
     var source: CGRect { CGRect(x: size.dimensions.width - 33, y: 13, width: 19, height: 19) }
@@ -46,7 +46,7 @@ struct MusicLayout {
         switch size {
         case .small: return CGRect(x: 15, y: 105, width: 90, height: 48)
         case .medium: return CGRect(x: 76, y: 22, width: 169, height: 41)
-        case .large: return CGRect(x: 135, y: 49, width: 127, height: 69)
+        case .large, .wide, .extraWide: return CGRect(x: 135, y: 49, width: 127, height: 69)
         }
     }
     var dividerY: CGFloat { size == .large ? 151 : 76 }

@@ -132,6 +132,39 @@ import AppKit
             RunLoop.main.run(until: Date().addingTimeInterval(0.2))
             _ = try capture(host, "hud-\(position.rawValue).png")
         }
+        let today = Calendar.current.startOfDay(for: Date())
+        let fixtures = (0..<5).flatMap { offset -> [CalendarEntry] in
+            let day = Calendar.current.date(byAdding: .day, value: offset, to: today)!
+            let hour = offset == 0 ? Calendar.current.component(.hour, from: Date()) : 9
+            let start = Calendar.current.date(bySettingHour: min(hour, 21), minute: 15, second: 0, of: day)!
+            return [CalendarEntry(id: "event-\(offset)", title: "Revisão de projeto com a equipe", start: start, end: start.addingTimeInterval(3600), allDay: false, red: 0.2, green: 0.5, blue: 0.9), CalendarEntry(id: "overlap-\(offset)", title: "Planejamento", start: start.addingTimeInterval(1800), end: start.addingTimeInterval(5400), allDay: false)]
+        }
+        let calendarPreview = AgendaService(preview: fixtures)
+        for theme in 0..<3 {
+            for size in [WidgetSize.small, .medium, .wide, .extraWide] {
+                let host = NSHostingView(rootView: ScheduleWidget(size: size, agenda: calendarPreview, dark: theme != 0, frosted: theme == 2).frame(width: size.dimensions.width, height: size.dimensions.height).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(origin: .zero, size: size.dimensions)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                _ = try capture(host, "agenda-\(theme)-\(size.rawValue).png")
+            }
+            for size in [WidgetSize.small, .medium] {
+                let host = NSHostingView(rootView: DateAgendaWidget(size: size, agenda: calendarPreview, dark: theme != 0, frosted: theme == 2).frame(width: size.dimensions.width, height: size.dimensions.height).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(origin: .zero, size: size.dimensions)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                _ = try capture(host, "date-\(theme)-\(size.rawValue).png")
+            }
+            for variant in ["dated", "extended", "digital"] {
+                let host = NSHostingView(rootView: ModernClockWidget(size: .small, digital: variant == "digital", dark: theme != 0, frosted: theme == 2, dialStyle: variant).frame(width: 164, height: 164).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(x: 0, y: 0, width: 164, height: 164)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                _ = try capture(host, "clock-new-\(theme)-\(variant).png")
+            }
+        }
         let imported = LumeCoordinator.shared
         for page in IntegrationSettingsView.Page.allCases {
             let host = NSHostingView(rootView: IntegrationSettingsView(coordinator: imported, model: imported.capsule.model, hud: imported.hud, corners: imported.corners, player: imported.player, selected: page).padding(24).frame(width: 650, height: 850, alignment: .topLeading))

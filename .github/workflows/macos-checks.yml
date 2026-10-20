@@ -24,11 +24,11 @@ jobs:
         run: bash scripts/build-app.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: Gergelim-1.1-Intel
-          path: dist/Gergelim-1.1-Intel.zip
+          name: Gergelim-1.2-Intel
+          path: dist/Gergelim-1.2-Intel.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: widget-gergelim-previews-11
+          name: widget-gergelim-previews-12
           path: dist/previews/*.png
           if-no-files-found: error
