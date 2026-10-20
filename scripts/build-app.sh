@@ -14,7 +14,7 @@ app_path="$build_dir/Build/Products/Release/Gergelim.app"
 test -x "$app_path/Contents/MacOS/Gergelim"
 /usr/bin/lipo "$app_path/Contents/MacOS/Gergelim" -verify_arch x86_64
 xcrun swiftc LoockMesa/Eko/GergelimSeed.swift scripts/GenerateSeedIcon.swift -o "$build_dir/seed-icon"
-"$build_dir/seed-icon" "$build_dir/AppIcon.iconset"
+"$build_dir/seed-icon" "$build_dir/AppIcon.iconset" "Resources/AppIconSource.jpg"
 /usr/bin/iconutil -c icns "$build_dir/AppIcon.iconset" -o "$app_path/Contents/Resources/AppIcon.icns"
 /usr/bin/codesign --verify --strict "$app_path/Contents/MacOS/OSDGuardian"
 /usr/bin/codesign --force --sign - --entitlements LoockMesa/LoockMesa.entitlements "$app_path"

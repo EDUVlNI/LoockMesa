@@ -4,6 +4,10 @@ import Combine
 @main
 struct MenuChecks {
     @MainActor static func main() {
+        precondition(!NotesRefreshPolicy.shouldRead(userInitiated: false, running: false, elapsed: 300), "Closed Notes must not be launched by a widget refresh")
+        precondition(!NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 1), "Calendar notifications must not trigger repeated Notes queries")
+        precondition(NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 300))
+        precondition(NotesRefreshPolicy.shouldRead(userInitiated: true, running: false, elapsed: 0), "Explicit connection may open Notes")
         var burst = HUDBurstPolicy()
         for index in 1...3 {
             precondition(burst.compact(style: .iOSVolume, value: Double(index) / 10, visible: index > 1, mode: .automatic, now: Double(index) * 0.15))

@@ -122,6 +122,8 @@ struct IOSHUDView: View {
     private var thickness: CGFloat { isCompact ? 8 : 48 }
     @State private var animatedValue: Double = 0.0
     @State private var isDragging = false
+    @State private var iconRevealed = false
+    private var iconRevealKey: Int { (isVisible ? 1 : 0) + (isCompact ? 2 : 0) + (reduceMotion ? 4 : 0) }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
@@ -177,7 +179,8 @@ struct IOSHUDView: View {
                     .padding(.bottom, 16) // Ajuste para equilibrar a nova altura
             }
 
-            }.opacity(isCompact ? 0 : 1)
+            }.blur(radius: iconRevealed || reduceMotion ? 0 : 5)
+             .opacity(iconRevealed ? 1 : 0)
 
             // 3. Preenchimento (Volume) Branco com "Furo" para o ícone
             Color.white
@@ -189,7 +192,7 @@ struct IOSHUDView: View {
                         Color.white
                             .scaleEffect(y: CGFloat(animatedValue), anchor: .bottom)
 
-                        if !isCompact {
+                        Group {
                         // O furo exato na posição do ícone
                         if icon.contains("speaker") && audioDeviceManager.isFreeClipActive {
                             ZStack {
@@ -203,6 +206,8 @@ struct IOSHUDView: View {
                             .rotationEffect(.degrees(position.horizontal ? -90 : 0))
                     .transaction { $0.animation = nil }
                     .padding(.bottom, 16)
+                            .blur(radius: iconRevealed || reduceMotion ? 0 : 5)
+                            .opacity(iconRevealed ? 1 : 0)
                             .blendMode(.destinationOut)
                         } else {
                             Image(systemName: currentIcon)
@@ -210,7 +215,9 @@ struct IOSHUDView: View {
                                 .rotationEffect(.degrees(position.horizontal ? -90 : 0))
                     .transaction { $0.animation = nil }
                     .padding(.bottom, 16)
-                                .blendMode(.destinationOut)
+                                .blur(radius: iconRevealed || reduceMotion ? 0 : 5)
+                            .opacity(iconRevealed ? 1 : 0)
+                            .blendMode(.destinationOut)
                         }
                         }
                     }
@@ -274,6 +281,20 @@ struct IOSHUDView: View {
             let safeValue = min(1, max(0, newValue.isFinite ? newValue : 0))
             guard !isDragging else { return }
             withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.18, dampingFraction: 1)) { animatedValue = safeValue }
+        }
+        .task(id: iconRevealKey) {
+            if !isVisible { return } // Keep the glyph attached to the exiting HUD.
+            if isCompact {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { iconRevealed = false }
+                return
+            }
+            iconRevealed = false
+            if !reduceMotion {
+                do { try await Task.sleep(nanoseconds: 320_000_000) }
+                catch { return }
+            }
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.3)) { iconRevealed = true }
         }
         .onAppear {
             animatedValue = min(1, max(0, value.isFinite ? value : 0))
