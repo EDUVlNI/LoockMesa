@@ -204,7 +204,7 @@ struct ScheduleWidget: View {
                         Text(agenda.connected ? "Sem eventos" : "Conecte sua agenda")
                             .font(.system(size: 9)).foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                }.clipped()
+                }.frame(width: geometry.size.width, height: height, alignment: .topLeading).clipped()
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

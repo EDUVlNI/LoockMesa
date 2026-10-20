@@ -214,7 +214,7 @@ struct ModernClockWidget: View {
             ZStack {
                 ClockDialDrawing(size: size, digital: digital, ink: ink, angles: playback.angles, elongated: dialStyle == "extended" || dialStyle == "dated")
                 if dialStyle == "dated" {
-                    Text(playback.snapshot.date, format: .dateTime.weekday(.abbreviated).day())
+                    Text(playback.snapshot.date, format: .dateTime.weekday(.abbreviated).day().locale(Locale(identifier: "pt_BR")))
                         .textCase(.uppercase).font(.system(size: side * 0.065, weight: .bold)).foregroundStyle(.orange)
                         .offset(y: side * 0.15)
                 }
@@ -271,7 +271,10 @@ struct ClockDialDrawing: View, Animatable {
             let corner = geometry.corner
             let second = (angles.second * 30 / .pi).truncatingRemainder(dividingBy: 60)
             for i in 0..<60 {
-                let mark = geometry.marks[i]
+                let angle = Double(i) * .pi / 30
+                let direction = CGVector(dx: sin(angle), dy: -cos(angle))
+                let radius = ClockPerimeter.rayDistance(dx: direction.dx, dy: direction.dy, in: dial, corner: corner)
+                let mark = elongated ? ClockPerimeter.Mark(point: CGPoint(x: center.x + direction.dx * radius, y: center.y + direction.dy * radius), normal: direction) : geometry.marks[i]
                 let active = max(0, 1 - abs(second - Double(i)))
                 let elapsed = Double(i) <= second
                 let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? (elongated && i % 15 != 0 ? 0.19 : 0.050) : 0.027))
