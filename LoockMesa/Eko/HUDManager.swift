@@ -174,8 +174,8 @@ class HUDManager: ObservableObject {
             guard let self = self, self.presentationGeneration == generation, !self.isInteracting, !self.isHovered else { return }
             HUDState.shared.hide()
 
-            // Remover fisicamente a janela depois que a SwiftUI fechar (0.5s depois)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            // Allow the glyph exit (0.16s) and bar transition to finish before removing the panel.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
                 guard self.presentationGeneration == generation else { return }
                 self.hudWindow?.orderOut(nil)
             }

@@ -118,12 +118,14 @@ struct IOSHUDView: View {
     var transition: HUDTransitionMode = .slide
     var hovering: ((Bool) -> Void)? = nil
     @State private var isHovered = false
-    private var isCompact: Bool { compact && !isHovered && !isDragging }
+    private var wantsCompact: Bool { compact && !isHovered && !isDragging }
+    @State private var isCompact = true
+    @State private var barVisible = false
     private var thickness: CGFloat { isCompact ? 8 : 48 }
     @State private var animatedValue: Double = 0.0
     @State private var isDragging = false
     @State private var iconRevealed = false
-    private var iconRevealKey: Int { (isVisible ? 1 : 0) + (isCompact ? 2 : 0) + (reduceMotion ? 4 : 0) }
+    private var iconRevealKey: Int { (isVisible ? 1 : 0) + (wantsCompact ? 2 : 0) + (reduceMotion ? 4 : 0) }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ObservedObject var audioDeviceManager = AudioDeviceManager.shared
@@ -270,24 +272,33 @@ struct IOSHUDView: View {
             if !visible { isHovered = false; isDragging = false; hovering?(false) }
         }
         .onDisappear { isHovered = false; hovering?(false) }
-        .blur(radius: transition == .blur && !isVisible && !reduceMotion ? 5 : 0)
-        .scaleEffect(transition == .blur && !isVisible && !reduceMotion ? 0.96 : 1, anchor: position.horizontal ? .bottom : position == .left ? .leading : .trailing)
-        .offset(position.offset(visible: transition == .blur ? true : isVisible))
-        .opacity(isVisible ? 1.0 : 0.0)
+        .blur(radius: transition == .blur && !barVisible && !reduceMotion ? 5 : 0)
+        .scaleEffect(transition == .blur && !barVisible && !reduceMotion ? 0.96 : 1, anchor: position.horizontal ? .bottom : position == .left ? .leading : .trailing)
+        .offset(position.offset(visible: transition == .blur ? true : barVisible))
+        .opacity(barVisible ? 1.0 : 0.0)
         // Manter a entrada ancorada à borda escolhida.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : transition == .blur ? .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.3) : .spring(response: 0.38, dampingFraction: 0.9), value: isVisible)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : transition == .blur ? .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.3) : .spring(response: 0.38, dampingFraction: 0.9), value: barVisible)
         .onChange(of: value) { newValue in
             let safeValue = min(1, max(0, newValue.isFinite ? newValue : 0))
             guard !isDragging else { return }
             withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.18, dampingFraction: 1)) { animatedValue = safeValue }
         }
         .task(id: iconRevealKey) {
-            if !isVisible { return } // Keep the glyph attached to the exiting HUD.
-            if isCompact {
+            // Exit/collapse in two phases: glyph blur first, then the bar.
+            if !isVisible || wantsCompact {
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.16)) { iconRevealed = false }
+                if barVisible && !isCompact && !reduceMotion {
+                    do { try await Task.sleep(nanoseconds: 160_000_000) }
+                    catch { return }
+                }
+                guard !Task.isCancelled else { return }
+                if !isVisible { barVisible = false }
+                else { isCompact = true; barVisible = true }
                 return
             }
+            barVisible = true
+            isCompact = false
             iconRevealed = false
             if !reduceMotion {
                 do { try await Task.sleep(nanoseconds: 320_000_000) }
