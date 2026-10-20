@@ -58,15 +58,15 @@ struct IntegrationSettingsView: View {
             }
             card("Dimensões e fundo") {
                 HStack { Text("Tamanho"); Spacer(); Text("\(Int(model.scale * 100))%").monospacedDigit().foregroundStyle(.secondary) }
-                Slider(value: $model.scale, in: 0.75...1.6, step: 0.05)
+                Slider(value: Binding(get: { model.scale }, set: { model.scale = $0 }), in: 0.75...1.6, step: 0.05)
                 HStack { Text("Opacidade do fundo"); Spacer(); Text("\(Int(model.backgroundOpacity * 100))%").monospacedDigit().foregroundStyle(.secondary) }
-                Slider(value: $model.backgroundOpacity, in: 0...1, step: 0.01)
+                Slider(value: Binding(get: { model.backgroundOpacity }, set: { model.backgroundOpacity = $0 }), in: 0...1, step: 0.01)
                 Text("0% deixa o fundo transparente; 100% mantém todo o efeito de desfoque.").font(.caption).foregroundStyle(.secondary)
                 Button("Restaurar tamanho e fundo") { model.scale = 1; model.backgroundOpacity = 0.92 }
             }
             card("Porcentagem da bateria") {
-                Toggle("Mostrar porcentagem sempre", isOn: $model.showsPercentage)
-                Toggle("Mostrar porcentagem ao carregar", isOn: $model.showsPercentageWhileCharging)
+                Toggle("Mostrar porcentagem sempre", isOn: Binding(get: { model.showsPercentage }, set: { model.showsPercentage = $0 }))
+                Toggle("Mostrar porcentagem ao carregar", isOn: Binding(get: { model.showsPercentageWhileCharging }, set: { model.showsPercentageWhileCharging = $0 }))
                 Text("Com a primeira opção desativada, a porcentagem aparece ao conectar o carregador e some ao desconectar.").font(.caption).foregroundStyle(.secondary)
             }
         case .indicators:
