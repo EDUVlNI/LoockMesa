@@ -78,6 +78,14 @@ struct IntegrationSettingsView: View {
                     ForEach(HUDPosition.allCases) { position in Text(position.rawValue).tag(position) }
                 }.pickerStyle(.segmented)
                 Text("No centro, as barras ficam na horizontal e aparecem pela parte inferior da tela.").font(.caption).foregroundStyle(.secondary)
+                Picker("Barra de volume e brilho", selection: $hud.presentationMode) {
+                    ForEach(HUDPresentationMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                Text("Automática: até três ajustes usa a barra fina; no quarto ajuste seguido ela se expande. Intervalo máximo de 0,8 segundo.").font(.caption).foregroundStyle(.secondary)
+                Picker("Animação de entrada e saída", selection: $hud.transitionMode) {
+                    ForEach(HUDTransitionMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+                }
+                Text("A animação também vale para a iluminação do teclado.").font(.caption).foregroundStyle(.secondary)
                 HStack {
                     Button("Testar volume") { hud.showVolume(0.65) }
                     Button("Testar tela") { hud.showDisplayBrightness(0.65) }
@@ -86,10 +94,10 @@ struct IntegrationSettingsView: View {
                 Text("Os testes só mostram o indicador; não alteram volume ou brilho.").font(.caption).foregroundStyle(.secondary)
             }
             card("Touch Bar") {
-                Toggle("Usar indicadores do Gergelim na Touch Bar", isOn: Binding(get: { native.enabled }, set: { native.setEnabled($0) }))
+                Toggle("Preferir os indicadores do Gergelim", isOn: Binding(get: { native.preferred }, set: { native.setEnabled($0) }))
                     .disabled(!coordinator.hudEnabled)
                 Text(native.status).font(.caption).foregroundStyle(.secondary)
-                Text("Controle experimental do indicador nativo, válido apenas nesta sessão.").font(.caption).foregroundStyle(.secondary)
+                Text("A preferência fica salva e é retomada ao abrir o Gergelim. Ao sair do app, o indicador nativo é restaurado.").font(.caption).foregroundStyle(.secondary)
             }
         case .music:
             Text("O player acompanha apenas seus aplicativos de música.").foregroundStyle(.secondary)

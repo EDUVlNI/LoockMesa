@@ -21,6 +21,12 @@ class HUDManager: ObservableObject {
         }
     }
 
+    @Published var presentationMode = HUDPresentationMode(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDPresentation") ?? "") ?? .automatic {
+        didSet { UserDefaults.standard.set(presentationMode.rawValue, forKey: "GergelimHUDPresentation") }
+    }
+    @Published var transitionMode = HUDTransitionMode(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDTransition") ?? "") ?? .slide {
+        didSet { UserDefaults.standard.set(transitionMode.rawValue, forKey: "GergelimHUDTransition") }
+    }
     private var hudWindow: NSPanel?
 
     static let shared = HUDManager()
@@ -31,7 +37,7 @@ class HUDManager: ObservableObject {
         }
     }
 
-    private var hideWorkItem: DispatchWorkItem?
+    private var hideWorkItem: Timer?
     private var presentationGeneration: UInt64 = 0
     private var isInteracting = false
 
@@ -54,14 +60,15 @@ class HUDManager: ObservableObject {
     func hideNowPlaying() {
         guard HUDState.shared.style == .nowPlayingClassic else { return }
         presentationGeneration &+= 1
-        hideWorkItem?.cancel()
+        hideWorkItem?.invalidate()
         HUDState.shared.hide()
         hudWindow?.orderOut(nil)
     }
 
     func stop() {
         presentationGeneration &+= 1
-        hideWorkItem?.cancel()
+        hideWorkItem?.invalidate()
+        HUDState.shared.hide()
         hudWindow?.orderOut(nil)
         hudWindow = nil
     }
@@ -99,8 +106,9 @@ class HUDManager: ObservableObject {
         guard let window = hudWindow else { return }
 
         // Cancelar animação de esconder anterior se existir
-        hideWorkItem?.cancel()
+        hideWorkItem?.invalidate()
 
+        if HUDState.shared.style != style || HUDState.shared.setLevel == nil {
         HUDState.shared.setLevel = style == .iOSVolume ? { level in
             _ = MediaKeyManager.shared.setVolume(level)
         } : style == .iOSDisplay ? { level in
@@ -111,9 +119,12 @@ class HUDManager: ObservableObject {
         HUDState.shared.editing = { [weak self] active in
             guard let self = self else { return }
             self.isInteracting = active
-            if active { self.hideWorkItem?.cancel() }
+            if active { self.hideWorkItem?.invalidate() }
             else { self.showHUD(style: HUDState.shared.style, value: HUDState.shared.value) }
         }
+        }
+        HUDState.shared.presentationMode = presentationMode
+        if HUDState.shared.transition != transitionMode { HUDState.shared.transition = transitionMode }
         if HUDState.shared.position != position { HUDState.shared.position = position }
         // Atualiza os valores via Estado Global (HUDState)
         HUDState.shared.show(style: style, value: value, animateLevel: false)
@@ -145,7 +156,7 @@ class HUDManager: ObservableObject {
         if !window.isVisible { window.orderFront(nil) }
 
         // Criar novo timer para esconder (aumentado para 3 segundos para Touch Bar e evitar fechar rápido)
-        let hideTask = DispatchWorkItem { [weak self] in
+        let hideTask = Timer(timeInterval: 2.3, repeats: false) { [weak self] _ in
             guard let self = self, self.presentationGeneration == generation, !self.isInteracting else { return }
             HUDState.shared.hide()
 
@@ -157,7 +168,7 @@ class HUDManager: ObservableObject {
         }
 
         self.hideWorkItem = hideTask
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.3, execute: hideTask)
+        RunLoop.main.add(hideTask, forMode: .common)
     }
 }
 
@@ -668,9 +679,10 @@ class MediaKeyManager: ObservableObject {
 
 }
 
-/// Session-only experimental integration. The separate helper owns restoration.
+/// Persistent preference; the separate helper still restores the native HUD on exit.
 final class NativeHUDController: ObservableObject {
     static let shared = NativeHUDController()
+    @Published private(set) var preferred = (UserDefaults.standard.object(forKey: "GergelimPreferNativeReplacement") as? Bool) ?? true
     @Published private(set) var enabled = false
     @Published private(set) var status = "Modo Touch Bar experimental desativado"
     private var process: Process?
@@ -678,7 +690,12 @@ final class NativeHUDController: ObservableObject {
     private var heartbeat: DispatchSourceTimer?
     @Published private(set) var isSuppressing = false
 
-    func setEnabled(_ value: Bool) {
+    func restorePreference() { setEnabled(preferred, persist: false) }
+    func setEnabled(_ value: Bool, persist: Bool = true) {
+        if persist {
+            if preferred != value { preferred = value }
+            UserDefaults.standard.set(value, forKey: "GergelimPreferNativeReplacement")
+        }
         dispatchPrecondition(condition: .onQueue(.main))
         if !value { stop(); return }
         guard process == nil else { return }

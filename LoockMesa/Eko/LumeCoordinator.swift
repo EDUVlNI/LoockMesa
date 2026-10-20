@@ -38,7 +38,10 @@ final class LumeCoordinator: ObservableObject {
         updateHUD()
     }
     func updateHUD() {
-        if hudEnabled { MediaKeyManager.shared.checkAccessibility(prompt: false) }
+        if hudEnabled {
+            MediaKeyManager.shared.checkAccessibility(prompt: false)
+            NativeHUDController.shared.restorePreference()
+        }
         else {
             NativeHUDController.shared.stop()
             MediaKeyManager.shared.stop()

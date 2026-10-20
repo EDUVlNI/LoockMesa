@@ -4,6 +4,26 @@ import Combine
 @main
 struct MenuChecks {
     @MainActor static func main() {
+        var burst = HUDBurstPolicy()
+        for index in 1...3 {
+            precondition(burst.compact(style: .iOSVolume, value: Double(index) / 10, visible: index > 1, mode: .automatic, now: Double(index) * 0.15))
+        }
+        precondition(!burst.compact(style: .iOSVolume, value: 0.4, visible: true, mode: .automatic, now: 0.6))
+        precondition(!burst.compact(style: .iOSVolume, value: 0.5, visible: true, mode: .automatic, now: 2), "Expanded HUD stays expanded until dismissal")
+        precondition(burst.compact(style: .iOSVolume, value: 0.6, visible: false, mode: .automatic, now: 3))
+        precondition(burst.compact(style: .iOSDisplay, value: 0.7, visible: true, mode: .automatic, now: 3.1), "Switching controls starts a new burst")
+        precondition(!burst.compact(style: .iOSKeyboard, value: 0.5, visible: true, mode: .thin, now: 3.2), "Keyboard never uses the thin mode")
+        burst.reset()
+        for index in 0..<20 {
+            precondition(burst.compact(style: .iOSVolume, value: 0.5, visible: true, mode: .automatic, now: Double(index) * 0.01), "Duplicate callbacks must not expand")
+        }
+        burst.reset()
+        for index in 0..<6 {
+            precondition(burst.compact(style: .iOSDisplay, value: Double(index) / 10, visible: true, mode: .automatic, now: Double(index)), "Separated taps reset the burst")
+        }
+        precondition(!burst.compact(style: .iOSVolume, value: 0.5, visible: false, mode: .full, now: 10))
+        precondition(burst.compact(style: .iOSVolume, value: 0.5, visible: false, mode: .thin, now: 10))
+        print("PASS: adaptive HUD thresholds, duplicates, spacing, dismissal, modes and keyboard exclusion")
         let now = Date()
         let overlapping = [CalendarEntry(id: "a", title: "A", start: now, end: now.addingTimeInterval(3600), allDay: false), CalendarEntry(id: "b", title: "B", start: now.addingTimeInterval(1800), end: now.addingTimeInterval(5400), allDay: false), CalendarEntry(id: "c", title: "C", start: now.addingTimeInterval(3600), end: now.addingTimeInterval(7200), allDay: false)]
         precondition(AgendaTimeline.lane(for: overlapping[0], among: overlapping).index == 0)
