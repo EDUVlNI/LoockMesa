@@ -260,10 +260,11 @@ class MediaKeyManager: ObservableObject {
                 self.lastKeyboardBrightness = value
                 if !self.keyboardWrites.isBusy { self.onKeyboardBrightnessChange?(value) }
             })
-        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             self?.pollBrightness()
         }
         RunLoop.main.add(timer, forMode: .common)
+        timer.tolerance = 0.04
         brightnessTimer = timer
     }
 

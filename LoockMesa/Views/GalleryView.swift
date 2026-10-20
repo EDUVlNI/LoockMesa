@@ -44,16 +44,16 @@ import AppKit
                 }.padding(16).frame(width: 190)
                 Divider()
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 22) {
+                    LazyVStack(alignment: .leading, spacing: 22) {
                         if let page = integrationPage {
                             IntegrationSettingsView(coordinator: integration, model: integration.capsule.model, hud: integration.hud, corners: integration.corners, player: integration.player, selected: page)
                         } else if general { Text("Ajustes gerais").font(.title2.bold()); generalSettings }
                         else {
                             if allWidgets && search.isEmpty {
                                 Text("Sugestões").font(.title2.bold())
-                                GalleryFlowLayout(spacing: 18) {
-                                    ForEach(suggestions) { kind in
-                                        previewTile(kind, variant: store.item(kind).variant ?? (kind == .calendar ? "date" : kind == .clock ? "dated" : "standard"), size: [.weather, .music, .musicLyrics].contains(kind) ? .medium : .small, compact: true)
+                                GalleryMosaicLayout {
+                                    ForEach(Array(suggestions.enumerated()), id: \.element) { index, kind in
+                                        suggestionTile(kind, size: index == 0 || index == 3 ? .medium : .small)
                                     }
                                 }
                                 Divider()
@@ -76,6 +76,7 @@ import AppKit
                         }
                     }.padding(24).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 // Recreate the scroll container on navigation, not the shared app data.
                 // A long catalogue must not leave a short category scrolled offscreen.
                 .id(integrationPage?.rawValue ?? (general ? "general" : allWidgets ? "all-" + search : selected.rawValue))
@@ -138,14 +139,23 @@ import AppKit
             }.frame(height: compact ? 32 : 44, alignment: .top)
         }.frame(width: max(140, width)).padding(5)
     }
+    private func suggestionTile(_ kind: WidgetKind, size: WidgetSize) -> some View {
+        let variant = kind == .calendar ? "date" : kind == .clock ? "digital" : "standard"
+        return DraggableWidgetPreview(face: WidgetFace(variant: variant, entrance: previewEntrance, preview: true, kind: kind, size: size, store: store, devices: devices, weather: weather, bluetooth: bluetooth, agenda: agenda), payload: GalleryWidgetPayload(kind: kind, size: size, variant: variant))
+            .frame(width: size.dimensions.width, height: size.dimensions.height)
+            .scaleEffect(0.72, anchor: .topLeading)
+            .frame(width: size.dimensions.width * 0.72, height: size.dimensions.height * 0.72, alignment: .topLeading)
+            .accessibilityLabel("Arrastar " + kind.title)
+    }
     private func variants(_ kind: WidgetKind) -> [String] {
-        kind == .weather ? ["standard", "daily", "details", "sun"] : kind == .clock ? ["dated", "digital", "extended", "analog"] : kind == .calendar ? ["date", "schedule", "month"] : ["standard"]
+        kind == .weather ? ["standard", "daily", "details", "sun"] : kind == .clock ? ["dated", "digital", "extended"] : kind == .calendar ? ["date", "schedule", "month"] : ["standard"]
     }
     private func availableSizes(_ kind: WidgetKind, _ variant: String) -> [WidgetSize] {
         if kind == .calendar && variant == "date" { return [.small, .medium] }
         if kind == .calendar && variant == "schedule" { return [.small, .medium, .wide, .extraWide] }
-        if kind == .clock && ["dated", "extended"].contains(variant) { return [.small, .large] }
+        if kind == .clock && ["dated", "extended"].contains(variant) { return [.small] }
         if kind == .clock && variant == "digital" { return [.small, .medium] }
+        if [.headphones, .macBattery, .musicLyrics].contains(kind) { return [.small, .medium] }
         return WidgetSize.allCases
     }
     private func description(_ kind: WidgetKind, _ variant: String) -> String {
@@ -359,6 +369,35 @@ struct GalleryFlowLayout: Layout {
         let positions = arrange(subviews, width: bounds.width).1
         for index in subviews.indices {
             subviews[index].place(at: CGPoint(x: bounds.minX + positions[index].x, y: bounds.minY + positions[index].y), anchor: .topLeading, proposal: .unspecified)
+        }
+    }
+}
+
+/// A compact desktop composition: two wide tiles and four small tiles.
+struct GalleryMosaicLayout: Layout {
+    private let unit: CGFloat = 164 * 0.72
+    private let gap: CGFloat = 16 * 0.72
+    private func positions(width: CGFloat, count: Int) -> (CGSize, [CGPoint]) {
+        let columns = max(2, Int((width + gap) / (unit + gap)))
+        var occupied = Set<Int>(), points: [CGPoint] = []
+        var lastRow = 0
+        for index in 0..<count {
+            let span = index == 0 || index == 3 ? 2 : 1
+            var cell = 0
+            while cell % columns + span > columns || (0..<span).contains(where: { occupied.contains(cell + $0) }) { cell += 1 }
+            for offset in 0..<span { occupied.insert(cell + offset) }
+            points.append(CGPoint(x: CGFloat(cell % columns) * (unit + gap), y: CGFloat(cell / columns) * (unit + gap)))
+            lastRow = max(lastRow, cell / columns)
+        }
+        return (CGSize(width: width, height: CGFloat(lastRow + 1) * (unit + gap) - gap), points)
+    }
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        positions(width: proposal.width ?? 700, count: subviews.count).0
+    }
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let points = positions(width: bounds.width, count: subviews.count).1
+        for index in subviews.indices {
+            subviews[index].place(at: CGPoint(x: bounds.minX + points[index].x, y: bounds.minY + points[index].y), anchor: .topLeading, proposal: .unspecified)
         }
     }
 }

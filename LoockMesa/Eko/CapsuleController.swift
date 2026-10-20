@@ -13,6 +13,8 @@ final class CapsuleController: NSObject {
     let model = StatusModel()
     private var panel: NSPanel?
     private var monitorTimer: Timer?
+    private var pointerMonitors: [Any] = []
+    private var lastPointerRefresh: TimeInterval = 0
     private var hideGeneration: UInt64 = 0
     private var lastShouldShow: Bool?
     private var menuHiddenUntil: TimeInterval = 0
@@ -62,9 +64,18 @@ final class CapsuleController: NSObject {
         positionPanel()
         refreshPresentation()
 
-        let timer = Timer(timeInterval: 0.04, target: self, selector: #selector(monitorTimerFired), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: 0.5, target: self, selector: #selector(monitorTimerFired), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
+        timer.tolerance = 0.1
         monitorTimer = timer
+
+        // Pointer events keep hover responsive without a permanent 25 Hz timer.
+        if let token = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] _ in
+            self?.pointerMoved()
+        }) { pointerMonitors.append(token) }
+        if let token = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged], handler: { [weak self] event in
+            self?.pointerMoved(); return event
+        }) { pointerMonitors.append(token) }
 
         NotificationCenter.default.addObserver(
             self,
@@ -81,6 +92,7 @@ final class CapsuleController: NSObject {
     }
 
     func stop() {
+        pointerMonitors.forEach { NSEvent.removeMonitor($0) }; pointerMonitors.removeAll()
         monitorTimer?.invalidate()
         monitorTimer = nil
         model.stop()
@@ -98,6 +110,13 @@ final class CapsuleController: NSObject {
 
     @objc private func workspaceWoke() {
         positionPanel()
+        refreshPresentation()
+    }
+
+    private func pointerMoved() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastPointerRefresh >= 0.03 else { return }
+        lastPointerRefresh = now
         refreshPresentation()
     }
 
@@ -128,6 +147,12 @@ final class CapsuleController: NSObject {
 
     private func refreshPresentation() {
         guard let panel else { return }
+        guard isEnabled else {
+            if panel.isVisible { panel.orderOut(nil) }
+            if model.isPresented { model.isPresented = false }
+            lastShouldShow = false
+            return
+        }
 
         let mouse = NSEvent.mouseLocation
         let hoverArea = screenRect(for: model.contentHitView)
@@ -142,7 +167,7 @@ final class CapsuleController: NSObject {
         // The system menu takes precedence, including during an ongoing hover fade.
         if nativeMenuBarIsVisible {
             lastShouldShow = false
-            model.isPresented = false
+            if model.isPresented { model.isPresented = false }
             panel.ignoresMouseEvents = true
             if panel.isVisible {
                 hideGeneration &+= 1
@@ -174,7 +199,7 @@ final class CapsuleController: NSObject {
         // Hide before the auto-hidden menu starts sliding into the display.
         let atTop = mouse.x >= screen.frame.minX && mouse.x <= screen.frame.maxX
             && mouse.y >= screen.frame.maxY - 2 && mouse.y <= screen.frame.maxY
-        if now - lastMenuScan >= 0.1 {
+        if now - lastMenuScan >= 0.5 {
             lastMenuScan = now
             systemMenuWindowVisible = hasVisibleMenuWindow(on: screen)
         }

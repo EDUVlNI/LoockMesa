@@ -132,6 +132,7 @@ final class StatusModel: NSObject, ObservableObject {
         formatter.dateStyle = .none
         return formatter
     }()
+    private var lastStatusRefresh = Date.distantPast
     private var timer: Timer?
     private var powerSource: CFRunLoopSource?
     private var powerObserver: NSObjectProtocol?
@@ -155,6 +156,7 @@ final class StatusModel: NSObject, ObservableObject {
         installPowerObserver()
         let timer = Timer(timeInterval: 1, target: self, selector: #selector(timerFired), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
+        timer.tolerance = 0.15
         self.timer = timer
     }
 
@@ -173,12 +175,16 @@ final class StatusModel: NSObject, ObservableObject {
     }
 
     private func refresh() {
-        timeText = clockFormatter.string(from: Date())
+        let time = clockFormatter.string(from: Date())
+        if timeText != time { timeText = time }
+        guard Date().timeIntervalSince(lastStatusRefresh) >= 5 else { return }
+        lastStatusRefresh = Date()
 
         if let interface = CWWiFiClient.shared().interface() {
-            isWiFiConnected = interface.powerOn() && interface.serviceActive()
+            let connected = interface.powerOn() && interface.serviceActive()
+            if isWiFiConnected != connected { isWiFiConnected = connected }
         } else {
-            isWiFiConnected = false
+            if isWiFiConnected { isWiFiConnected = false }
         }
         refreshBattery()
         refreshAccessories()
@@ -186,7 +192,8 @@ final class StatusModel: NSObject, ObservableObject {
 
     private func refreshAccessories() {
         guard elements.contains(.bluetooth) || elements.contains(.headphones) else { return }
-        bluetoothOn = IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON
+        let bluetooth = IOBluetoothHostController.default()?.powerState == kBluetoothHCIPowerStateON
+        if bluetoothOn != bluetooth { bluetoothOn = bluetooth }
         guard elements.contains(.headphones) else { return }
         let devices = (IOBluetoothDevice.pairedDevices() as? [IOBluetoothDevice] ?? []).filter { $0.isConnected() }
         let freeClip = devices.first { Self.isFreeClip($0.name ?? "") }

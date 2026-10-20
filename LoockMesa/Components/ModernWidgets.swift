@@ -420,6 +420,11 @@ final class GalleryDragHost: NSView {
     required init?(coder: NSCoder) { fatalError("Not used") }
     override func layout() { super.layout(); hosted.frame = bounds }
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(convert(point, from: superview)) ? self : nil }
+    override func scrollWheel(with event: NSEvent) {
+        // The preview is a drag surface, not a scroll container.
+        if let scroll = enclosingScrollView { scroll.scrollWheel(with: event) }
+        else { super.scrollWheel(with: event) }
+    }
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture, inMode: .eventTracking, dequeue: true) {

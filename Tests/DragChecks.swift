@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+final class ScrollProbe: NSScrollView {
+    var received = false
+    override func scrollWheel(with event: NSEvent) { received = true }
+}
+
 @main struct DragChecks {
     @MainActor static func main() {
         _ = NSApplication.shared
@@ -77,6 +82,12 @@ import SwiftUI
         precondition(galleryHost.hitTest(CGPoint(x: 100, y: 100)) === galleryHost, "Gallery must capture pointer over hosted SwiftUI content")
         precondition(galleryHost.hitTest(CGPoint(x: 10, y: 10)) == nil, "Outside gallery bounds must not capture input")
         print("PASS: gallery native drag host owns preview hit target and rejects outside points")
+        let scroll = ScrollProbe(frame: CGRect(x: 0, y: 0, width: 700, height: 300))
+        scroll.documentView = container
+        let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0)!
+        galleryHost.scrollWheel(with: NSEvent(cgEvent: wheel)!)
+        precondition(scroll.received, "Scrolling over a widget preview must reach the enclosing scroll view")
+
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         var starts = 0
