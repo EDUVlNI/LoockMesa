@@ -239,10 +239,17 @@ struct ClockFaceGeometry {
     let dial: CGRect
     let corner: CGFloat
     let marks: [ClockPerimeter.Mark]
+    let radialMarks: [ClockPerimeter.Mark]
     private static func make(_ size: WidgetSize) -> Self {
         let dimensions = size.dimensions
         let dial = CGRect(x: 7, y: 7, width: dimensions.width - 14, height: dimensions.height - 14)
-        return Self(dial: dial, corner: 16, marks: (0..<60).map { ClockPerimeter.mark(index: $0, in: dial, corner: 16) })
+        let radial = (0..<60).map { index -> ClockPerimeter.Mark in
+            let angle = Double(index) * .pi / 30
+            let direction = CGVector(dx: sin(angle), dy: -cos(angle))
+            let radius = ClockPerimeter.rayDistance(dx: direction.dx, dy: direction.dy, in: dial, corner: 16)
+            return ClockPerimeter.Mark(point: CGPoint(x: dial.midX + direction.dx * radius, y: dial.midY + direction.dy * radius), normal: direction)
+        }
+        return Self(dial: dial, corner: 16, marks: (0..<60).map { ClockPerimeter.mark(index: $0, in: dial, corner: 16) }, radialMarks: radial)
     }
     private static let small = make(.small)
     private static let medium = make(.medium)
@@ -271,10 +278,7 @@ struct ClockDialDrawing: View, Animatable {
             let corner = geometry.corner
             let second = (angles.second * 30 / .pi).truncatingRemainder(dividingBy: 60)
             for i in 0..<60 {
-                let angle = Double(i) * .pi / 30
-                let direction = CGVector(dx: sin(angle), dy: -cos(angle))
-                let radius = ClockPerimeter.rayDistance(dx: direction.dx, dy: direction.dy, in: dial, corner: corner)
-                let mark = elongated ? ClockPerimeter.Mark(point: CGPoint(x: center.x + direction.dx * radius, y: center.y + direction.dy * radius), normal: direction) : geometry.marks[i]
+                let mark = elongated ? geometry.radialMarks[i] : geometry.marks[i]
                 let active = max(0, 1 - abs(second - Double(i)))
                 let elapsed = Double(i) <= second
                 let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? (elongated && i % 15 != 0 ? 0.19 : 0.050) : 0.027))
