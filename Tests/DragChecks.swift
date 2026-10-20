@@ -16,6 +16,14 @@ final class ScrollProbe: NSScrollView {
         for size in WidgetSize.allCases {
             let dimensions = size.dimensions
             let rect = CGRect(x: 7, y: 7, width: dimensions.width - 14, height: dimensions.height - 14)
+            for degree in 0..<360 {
+                let a = Double(degree) * .pi / 180
+                let dx = sin(a), dy = cos(a)
+                let distance = ClockPerimeter.rayDistance(dx: dx, dy: dy, in: rect, corner: 16)
+                let qx = max(abs(dx * distance) - (rect.width / 2 - 16), 0)
+                let qy = max(abs(dy * distance) - (rect.height / 2 - 16), 0)
+                precondition(abs(hypot(qx, qy) - 16) < 0.0001, "Clock rays must end on the rounded contour")
+            }
             for index in 0..<60 {
                 let mark = ClockPerimeter.mark(index: index, in: rect, corner: 16)
                 precondition(mark.point.x >= rect.minX - 0.001 && mark.point.x <= rect.maxX + 0.001)

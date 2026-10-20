@@ -348,14 +348,16 @@ enum ClockPerimeter {
     }
     static func rayDistance(dx: CGFloat, dy: CGFloat, in rect: CGRect, corner: CGFloat) -> CGFloat {
         let halfWidth = rect.width / 2, halfHeight = rect.height / 2
-        var lo: CGFloat = 0, hi = hypot(halfWidth, halfHeight)
-        for _ in 0..<18 {
-            let t = (lo + hi) / 2
-            let qx = max(abs(dx * t) - (halfWidth - corner), 0)
-            let qy = max(abs(dy * t) - (halfHeight - corner), 0)
-            if hypot(qx, qy) <= corner { lo = t } else { hi = t }
-        }
-        return lo
+        let x = abs(dx), y = abs(dy)
+        let straight = min(x > 0 ? halfWidth / x : .infinity, y > 0 ? halfHeight / y : .infinity)
+        if x * straight <= halfWidth - corner || y * straight <= halfHeight - corner { return straight }
+        // Exact ray/corner-circle intersection avoids 18 searches per hand/frame.
+        let cx = halfWidth - corner, cy = halfHeight - corner
+        let squared = x * x + y * y
+        guard squared > 0 else { return 0 }
+        let dot = x * cx + y * cy
+        let discriminant = max(0, dot * dot - squared * (cx * cx + cy * cy - corner * corner))
+        return (dot + sqrt(discriminant)) / squared
     }
 }
 struct DateCardWidget: View {
