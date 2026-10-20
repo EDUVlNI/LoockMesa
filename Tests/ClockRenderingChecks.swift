@@ -165,6 +165,17 @@ import AppKit
                 _ = try capture(host, "clock-new-\(theme)-\(variant).png")
             }
         }
+        let galleryDefaults = UserDefaults(suiteName: "Gergelim.GalleryRendering")!
+        defer { galleryDefaults.removePersistentDomain(forName: "Gergelim.GalleryRendering") }
+        let galleryStore = DeskStore(defaults: galleryDefaults)
+        galleryStore.preferences.surface = .original
+        galleryStore.preferences.appearance = .light
+        let galleryHost = NSHostingView(rootView: GalleryView(store: galleryStore, devices: DeviceService(), weather: weather, bluetooth: BluetoothBatteryService(automatic: false), agenda: calendarPreview))
+        galleryHost.frame = CGRect(x: 0, y: 0, width: 1100, height: 780)
+        let galleryWindow = NSWindow(contentRect: galleryHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        galleryWindow.contentView = galleryHost; previewWindows.append(galleryWindow)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        _ = try capture(galleryHost, "gallery-home.png")
         let imported = LumeCoordinator.shared
         for page in IntegrationSettingsView.Page.allCases {
             let host = NSHostingView(rootView: IntegrationSettingsView(coordinator: imported, model: imported.capsule.model, hud: imported.hud, corners: imported.corners, player: imported.player, selected: page).padding(24).frame(width: 650, height: 850, alignment: .topLeading))

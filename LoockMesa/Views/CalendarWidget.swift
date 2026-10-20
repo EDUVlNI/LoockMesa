@@ -161,7 +161,7 @@ struct ScheduleWidget: View {
         let end = start.addingTimeInterval(3 * 3600)
         let timed = events.filter { !$0.allDay && $0.start < end && $0.end > start }
         return VStack(alignment: .leading, spacing: 3) {
-            Text(index == 1 && count == 2 ? "AMANHÃ" : day.formatted(.dateTime.weekday(.wide)).uppercased())
+            Text(index == 1 && count == 2 ? "AMANHÃ" : day.formatted(.dateTime.weekday(.wide).locale(Locale(identifier: "pt_BR"))).uppercased())
                 .font(.system(size: 8, weight: .bold)).foregroundStyle(index == 0 ? Color.red : .secondary).lineLimit(1)
             Text(day, format: .dateTime.day()).font(.system(size: 25, weight: .medium))
             if let allDay = events.first(where: { $0.allDay }) {
