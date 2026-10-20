@@ -3,12 +3,13 @@ import SwiftUI
 @MainActor
 struct IntegrationSettingsView: View {
     @ObservedObject var coordinator: LumeCoordinator
-    @ObservedObject var model: StatusModel
+    let model: StatusModel
     @ObservedObject var hud: HUDManager
     @ObservedObject var corners: OverlayManager
-    @ObservedObject var player: MediaRemoteWrapper
+    let player: MediaRemoteWrapper
     @ObservedObject private var keys = MediaKeyManager.shared
     @ObservedObject private var native = NativeHUDController.shared
+    @State private var contentRevision: UInt = 0
     let selected: Page
     enum Page: String, CaseIterable, Identifiable {
         case capsule = "Capsule", indicators = "Indicadores", hud = "Volume e brilho", music = "Música", appearance = "Tela", permissions = "Permissões"
@@ -35,10 +36,17 @@ struct IntegrationSettingsView: View {
         }
     }
     var body: some View {
+        let _ = contentRevision
         VStack(alignment: .leading, spacing: 22) {
             Text(selected == .music ? "Player flutuante" : selected.rawValue).font(.title2.bold())
             detail
         }.frame(maxWidth: .infinity, alignment: .leading).toggleStyle(.switch)
+        .onReceive(model.objectWillChange) { _ in
+            if selected == .capsule || selected == .indicators { contentRevision &+= 1 }
+        }
+        .onReceive(player.objectWillChange) { _ in
+            if selected == .music { contentRevision &+= 1 }
+        }
     }
     @ViewBuilder private var detail: some View {
         switch selected {
@@ -81,7 +89,7 @@ struct IntegrationSettingsView: View {
                 Picker("Barra de volume e brilho", selection: $hud.presentationMode) {
                     ForEach(HUDPresentationMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
                 }
-                Text("Automática: até três ajustes usa a barra fina; no quarto ajuste seguido ela se expande. Intervalo máximo de 0,8 segundo.").font(.caption).foregroundStyle(.secondary)
+                Text("Automática: até três ajustes usa a barra fina; no quarto ajuste seguido ela se expande. Intervalo máximo de 0,8 segundo. Ao passar o mouse, a barra se expande em qualquer modo, inclusive Sempre fina.").font(.caption).foregroundStyle(.secondary)
                 Picker("Animação de entrada e saída", selection: $hud.transitionMode) {
                     ForEach(HUDTransitionMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
                 }

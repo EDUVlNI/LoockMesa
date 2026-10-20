@@ -80,7 +80,7 @@ struct HUDView: View {
         Group {
             switch state.style {
             case .iOSVolume, .iOSDisplay, .iOSKeyboard:
-                IOSHUDView(value: state.value, icon: state.style == .iOSVolume ? "speaker.wave.3.fill" : state.style == .iOSDisplay ? "sun.max.fill" : "keyboard", isVisible: state.isVisible, setLevel: state.setLevel, editing: state.editing, position: state.position, compact: state.compact, transition: state.transition)
+                IOSHUDView(value: state.value, icon: state.style == .iOSVolume ? "speaker.wave.3.fill" : state.style == .iOSDisplay ? "sun.max.fill" : "keyboard", isVisible: state.isVisible, setLevel: state.setLevel, editing: state.editing, position: state.position, compact: state.compact, transition: state.transition, hovering: state.hovering)
             case .nowPlayingClassic:
                 NowPlayingClassicView(value: state.value, icon: "music.note", isVisible: state.isVisible)
             }
@@ -116,7 +116,10 @@ struct IOSHUDView: View {
     var position: HUDPosition = .left
     var compact = false
     var transition: HUDTransitionMode = .slide
-    private var thickness: CGFloat { compact ? 8 : 48 }
+    var hovering: ((Bool) -> Void)? = nil
+    @State private var isHovered = false
+    private var isCompact: Bool { compact && !isHovered && !isDragging }
+    private var thickness: CGFloat { isCompact ? 8 : 48 }
     @State private var animatedValue: Double = 0.0
     @State private var isDragging = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -174,7 +177,7 @@ struct IOSHUDView: View {
                     .padding(.bottom, 16) // Ajuste para equilibrar a nova altura
             }
 
-            }.opacity(compact ? 0 : 1)
+            }.opacity(isCompact ? 0 : 1)
 
             // 3. Preenchimento (Volume) Branco com "Furo" para o ícone
             Color.white
@@ -186,7 +189,7 @@ struct IOSHUDView: View {
                         Color.white
                             .scaleEffect(y: CGFloat(animatedValue), anchor: .bottom)
 
-                        if !compact {
+                        if !isCompact {
                         // O furo exato na posição do ícone
                         if icon.contains("speaker") && audioDeviceManager.isFreeClipActive {
                             ZStack {
@@ -216,12 +219,12 @@ struct IOSHUDView: View {
         }
         // Mais fino e mais longo (Retangular com bordas arredondadas)
         .frame(width: thickness, height: 230)
-        .clipShape(RoundedRectangle(cornerRadius: compact ? 4 : 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: isCompact ? 4 : 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: compact ? 4 : 14, style: .continuous)
+            RoundedRectangle(cornerRadius: isCompact ? 4 : 14, style: .continuous)
                 .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
         )
-        .shadow(color: Color.black.opacity(0.25), radius: compact ? 5 : 20, x: 0, y: 10)
+        .shadow(color: Color.black.opacity(0.25), radius: isCompact ? 5 : 20, x: 0, y: 10)
         .contentShape(Rectangle())
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { drag in
@@ -248,17 +251,29 @@ struct IOSHUDView: View {
         // Os três indicadores usam exatamente a mesma entrada e saída.
         .rotationEffect(.degrees(position.horizontal ? 90 : 0))
         .frame(width: position.horizontal ? 230 : thickness, height: position.horizontal ? thickness : 230)
-        .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.9), value: compact)
-        .blur(radius: transition == .blur && !isVisible && !reduceMotion ? 6 : 0)
+        .animation(reduceMotion ? nil : .interactiveSpring(response: 0.32, dampingFraction: 0.92), value: isCompact)
+        .frame(width: position.horizontal ? 230 : 48, height: position.horizontal ? 48 : 230, alignment: position.alignment)
+        .contentShape(Rectangle())
+        .onHover { active in
+            guard isVisible, isHovered != active else { return }
+            isHovered = active
+            hovering?(active)
+        }
+        .onChange(of: isVisible) { visible in
+            if !visible { isHovered = false; isDragging = false; hovering?(false) }
+        }
+        .onDisappear { isHovered = false; hovering?(false) }
+        .blur(radius: transition == .blur && !isVisible && !reduceMotion ? 5 : 0)
+        .scaleEffect(transition == .blur && !isVisible && !reduceMotion ? 0.96 : 1, anchor: position.horizontal ? .bottom : position == .left ? .leading : .trailing)
         .offset(position.offset(visible: transition == .blur ? true : isVisible))
         .opacity(isVisible ? 1.0 : 0.0)
         // Manter a entrada ancorada à borda escolhida.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: position.alignment)
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : transition == .blur ? .easeInOut(duration: 0.28) : .spring(response: 0.38, dampingFraction: 0.9), value: isVisible)
+        .animation(reduceMotion ? .easeInOut(duration: 0.15) : transition == .blur ? .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.3) : .spring(response: 0.38, dampingFraction: 0.9), value: isVisible)
         .onChange(of: value) { newValue in
             let safeValue = min(1, max(0, newValue.isFinite ? newValue : 0))
             guard !isDragging else { return }
-            withAnimation(.linear(duration: 0.08)) { animatedValue = safeValue }
+            withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.18, dampingFraction: 1)) { animatedValue = safeValue }
         }
         .onAppear {
             animatedValue = min(1, max(0, value.isFinite ? value : 0))
@@ -484,8 +499,8 @@ struct VisualEffectView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
+        if nsView.material != material { nsView.material = material }
+        if nsView.blendingMode != blendingMode { nsView.blendingMode = blendingMode }
     }
 }
 
@@ -541,6 +556,7 @@ class HUDState: ObservableObject {
     @Published var isVisible: Bool = false
     var setLevel: ((Double) -> Void)?
     var editing: ((Bool) -> Void)?
+    var hovering: ((Bool) -> Void)?
     func show(style: HUDStyle, value: Double, animateLevel: Bool = false) {
         guard value.isFinite else { return }
         let nextCompact = burst.compact(style: style, value: value, visible: isVisible, mode: presentationMode, now: ProcessInfo.processInfo.systemUptime)

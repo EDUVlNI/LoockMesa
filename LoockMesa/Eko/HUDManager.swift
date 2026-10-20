@@ -22,10 +22,10 @@ class HUDManager: ObservableObject {
     }
 
     @Published var presentationMode = HUDPresentationMode(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDPresentation") ?? "") ?? .automatic {
-        didSet { UserDefaults.standard.set(presentationMode.rawValue, forKey: "GergelimHUDPresentation") }
+        didSet { guard oldValue != presentationMode else { return }; UserDefaults.standard.set(presentationMode.rawValue, forKey: "GergelimHUDPresentation") }
     }
     @Published var transitionMode = HUDTransitionMode(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDTransition") ?? "") ?? .slide {
-        didSet { UserDefaults.standard.set(transitionMode.rawValue, forKey: "GergelimHUDTransition") }
+        didSet { guard oldValue != transitionMode else { return }; UserDefaults.standard.set(transitionMode.rawValue, forKey: "GergelimHUDTransition") }
     }
     private var hudWindow: NSPanel?
 
@@ -40,6 +40,7 @@ class HUDManager: ObservableObject {
     private var hideWorkItem: Timer?
     private var presentationGeneration: UInt64 = 0
     private var isInteracting = false
+    private var isHovered = false
 
     func showPreview() {
         showHUD(style: selectedStyle, value: 0.8)
@@ -71,6 +72,8 @@ class HUDManager: ObservableObject {
         HUDState.shared.hide()
         hudWindow?.orderOut(nil)
         hudWindow = nil
+        isInteracting = false
+        isHovered = false
     }
 
     func showNowPlaying() {
@@ -94,6 +97,7 @@ class HUDManager: ObservableObject {
             window.backgroundColor = .clear
             window.level = .floating
             window.hasShadow = false
+            window.acceptsMouseMovedEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
 
             // Atribui a view apenas UMA vez
@@ -122,6 +126,14 @@ class HUDManager: ObservableObject {
             if active { self.hideWorkItem?.invalidate() }
             else { self.showHUD(style: HUDState.shared.style, value: HUDState.shared.value) }
         }
+        }
+        HUDState.shared.hovering = { [weak self] active in
+            guard let self = self, self.isHovered != active else { return }
+            self.isHovered = active
+            if active { self.hideWorkItem?.invalidate() }
+            else if HUDState.shared.isVisible && !self.isInteracting {
+                self.showHUD(style: HUDState.shared.style, value: HUDState.shared.value)
+            }
         }
         HUDState.shared.presentationMode = presentationMode
         if HUDState.shared.transition != transitionMode { HUDState.shared.transition = transitionMode }
@@ -155,9 +167,11 @@ class HUDManager: ObservableObject {
         window.alphaValue = 1.0
         if !window.isVisible { window.orderFront(nil) }
 
+        guard !isHovered && !isInteracting else { return }
+
         // Criar novo timer para esconder (aumentado para 3 segundos para Touch Bar e evitar fechar rápido)
         let hideTask = Timer(timeInterval: 2.3, repeats: false) { [weak self] _ in
-            guard let self = self, self.presentationGeneration == generation, !self.isInteracting else { return }
+            guard let self = self, self.presentationGeneration == generation, !self.isInteracting, !self.isHovered else { return }
             HUDState.shared.hide()
 
             // Remover fisicamente a janela depois que a SwiftUI fechar (0.5s depois)
@@ -195,7 +209,7 @@ class MediaKeyManager: ObservableObject {
 
         DispatchQueue.main.async {
             guard self.isMonitoring else { return }
-            self.isAccessibilityGranted = granted
+            if self.isAccessibilityGranted != granted { self.isAccessibilityGranted = granted }
             self.addAudioListener()
             self.startPollingBrightness()
             if !granted { self.stopEventTap() }
