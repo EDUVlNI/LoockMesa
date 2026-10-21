@@ -14,6 +14,9 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
     private var connectNotification: IOBluetoothUserNotification?
     private var disconnectNotifications: [String: IOBluetoothUserNotification] = [:]
     private var retry: DispatchWorkItem?
+    private var hidPort: IONotificationPortRef?
+    private var hidIterators: [io_iterator_t] = []
+    private var hardwareRefresh: DispatchWorkItem?
     private var paused = false
     private var epoch = 0
     private var rerun = false
@@ -31,14 +34,47 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
             let native = nativeDevices()
             publish(native, announce: false)
             connectNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(connected(_:device:)))
+            startHIDNotifications()
             refresh()
             timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in self?.refresh() }
             timer?.tolerance = 20
         }
     }
     deinit {
-        timer?.invalidate(); retry?.cancel(); connectNotification?.unregister()
+        timer?.invalidate(); retry?.cancel(); hardwareRefresh?.cancel(); connectNotification?.unregister()
+        hidIterators.forEach { IOObjectRelease($0) }
+        if let hidPort { IONotificationPortDestroy(hidPort) }
         disconnectNotifications.values.forEach { $0.unregister() }
+    }
+    private func startHIDNotifications() {
+        guard let port = IONotificationPortCreate(kIOMainPortDefault) else { return }
+        hidPort = port
+        IONotificationPortSetDispatchQueue(port, DispatchQueue.main)
+        for event in [kIOFirstMatchNotification, kIOTerminatedNotification] {
+            var iterator: io_iterator_t = 0
+            let result = IOServiceAddMatchingNotification(port, event, IOServiceMatching("IOHIDDevice"), { context, iterator in
+                var object = IOIteratorNext(iterator)
+                var changed = false
+                while object != 0 { changed = true; IOObjectRelease(object); object = IOIteratorNext(iterator) }
+                guard changed, let context else { return }
+                let owner = Unmanaged<BluetoothBatteryService>.fromOpaque(context).takeUnretainedValue()
+                owner.hardwareChanged()
+            }, Unmanaged.passUnretained(self).toOpaque(), &iterator)
+            if result == KERN_SUCCESS {
+                hidIterators.append(iterator)
+                // Drain once to arm; existing HID devices are not new connections.
+                var object = IOIteratorNext(iterator)
+                while object != 0 { IOObjectRelease(object); object = IOIteratorNext(iterator) }
+            }
+        }
+    }
+    private func hardwareChanged() {
+        guard !paused else { return }
+        epoch += 1
+        hardwareRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refresh() }
+        hardwareRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
     var freeClip: BluetoothReading? { devices.first(where: \.isFreeClip) }
     private func reading(_ device: IOBluetoothDevice) -> BluetoothReading {

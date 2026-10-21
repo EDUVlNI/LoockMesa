@@ -79,7 +79,8 @@ enum FreeClipSymbol {
 struct ArcMouseIcon: View {
     var body: some View {
         GeometryReader { g in
-            let transform = CGAffineTransform(scaleX: g.size.width / 100, y: g.size.height / 64)
+            let scale = min(g.size.width / 100, g.size.height / 64)
+            let transform = CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: (g.size.width - 100 * scale) / 2, y: (g.size.height - 64 * scale) / 2))
             Path { p in
                 p.move(to: CGPoint(x: 3, y: 52))
                 p.addCurve(to: CGPoint(x: 43, y: 18), control1: CGPoint(x: 13, y: 43), control2: CGPoint(x: 30, y: 27))
