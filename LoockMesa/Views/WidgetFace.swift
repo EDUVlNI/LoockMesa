@@ -131,14 +131,14 @@ struct HeadphonesWidget: View {
         let entry = index < visible.count ? visible[index] : nil
         return VStack(spacing: size == .large ? 12 : 14) {
             BatteryRing(symbol: entry?.symbol ?? "", value: entry?.value, dimension: dimension,
-                freeClip: entry?.freeClip ?? false, charging: entry?.charging ?? false,
+                freeClip: entry?.freeClip ?? false, arcMouse: entry?.arcMouse ?? false, charging: entry?.charging ?? false,
                 light: light, monochrome: monochrome, lowPower: entry?.symbol == "laptopcomputer" && devices.lowPower)
             if size != .small {
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    AnimatedValue(value: entry.map { String($0.value) } ?? "0")
+                    AnimatedValue(value: entry?.value.map(String.init) ?? "—")
                         .font(.system(size: size == .large ? 23 : 21, weight: .regular))
                         .monospacedDigit().tracking(-0.4)
-                    Text("%")
+                    Text(entry?.value == nil ? "" : "%")
                         .font(.system(size: size == .large ? 19 : 17, weight: .regular))
                 }
                 // Identical metrics for occupied and empty slots keep both rows centered.
@@ -148,7 +148,7 @@ struct HeadphonesWidget: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.map { "\($0.label), \($0.value) por cento" } ?? "Posição livre")
+        .accessibilityLabel(entry.map { "\($0.label), " + ($0.value.map { "\($0) por cento" } ?? "bateria não informada") } ?? "Posição livre")
     }
 }
 

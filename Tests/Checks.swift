@@ -240,8 +240,17 @@ struct Checks {
             BluetoothReading(name: "Mouse", overall: 0, left: nil, right: nil, caseLevel: nil),
             BluetoothReading(name: "Sem carga", overall: nil, left: nil, right: nil, caseLevel: nil)]
         let entries = BatteryEntry.entries(mac: 82, charging: false, readings: connected)
-        assert(entries.count == 4 && entries.map(\.value) == [82, 100, 45, 0])
+        assert(entries.count == 5 && entries.map(\.value) == [82, 100, 45, 0, nil])
         assert(entries[1].freeClip && entries[2].symbol == "keyboard" && entries[3].symbol == "computermouse")
+        let arc = BluetoothReading(name: "Microsoft Arc de Eduardo", overall: nil, left: nil, right: nil, caseLevel: nil)
+        assert(arc.isArcMouse && arc.symbol == "computermouse")
+        let arcEntry = BatteryEntry.entries(mac: nil, charging: false, readings: [arc]).first!
+        assert(arcEntry.arcMouse && arcEntry.value == nil)
+        var connections = BluetoothConnectionTracker()
+        assert(connections.update([arc]).isEmpty) // startup is silent
+        assert(connections.update([arc]).isEmpty) // battery refresh is silent
+        assert(connections.update([]).isEmpty)
+        assert(connections.update([arc, arc]).count == 1) // reconnect, deduplicated
         let separate = BluetoothReading(name: "Fones", overall: 80, left: 80, right: 70, caseLevel: 50)
         let split = BatteryEntry.entries(mac: nil, charging: false, readings: [separate, separate])
         assert(split.count == 3 && split.map(\.value) == [80, 70, 50])

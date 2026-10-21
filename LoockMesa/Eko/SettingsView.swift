@@ -73,6 +73,10 @@ struct IntegrationSettingsView: View {
         case .indicators:
             Text("Escolha os indicadores e arraste os itens para organizar sua ordem.").foregroundStyle(.secondary)
             ArrangementView(model: model).frame(maxWidth: .infinity)
+            card("Conexões Bluetooth") {
+                Toggle("Avisar quando conectar um dispositivo", isOn: $hud.connectionNotifications)
+                Text("Mostra o nome e a bateria disponível no topo da tela. Dispositivos já conectados ao abrir o app não geram avisos.").font(.caption).foregroundStyle(.secondary)
+            }
             card("Fones de ouvido") {
                 Text(model.headphoneName ?? "Nenhum fone conectado").font(.headline)
                 Text("O Huawei FreeClip usa o seu vetor. Outros fones recebem o símbolo de fone de ouvido.").foregroundStyle(.secondary)

@@ -8,6 +8,13 @@ struct MenuChecks {
         precondition(!NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 1), "Calendar notifications must not trigger repeated Notes queries")
         precondition(NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 300))
         precondition(NotesRefreshPolicy.shouldRead(userInitiated: true, running: false, elapsed: 0), "Explicit connection may open Notes")
+        let named = BluetoothReading(name: "Microsoft Arc de Eduardo", address: "AA-BB-CC-DD-EE-FF", overall: nil, left: nil, right: nil, caseLevel: nil)
+        let hid = BluetoothReading(name: "Surface Arc Mouse", deviceType: "mouse", address: "aa:bb:cc:dd:ee:ff", overall: 63, left: nil, right: nil, caseLevel: nil)
+        let merged = BluetoothBatteryService.merge(report: [named], connected: [named, hid])
+        precondition(merged.count == 1 && merged[0].name == named.name && merged[0].overall == 63)
+        let reported = BluetoothReading(name: named.name, address: named.address, overall: 10, left: nil, right: nil, caseLevel: nil)
+        precondition(BluetoothBatteryService.merge(report: [reported], connected: [hid])[0].overall == 10)
+        precondition(HUDStyle.deviceConnection.atTop && HUDStyle.nowPlayingClassic.atTop && !HUDStyle.iOSVolume.atTop)
         var burst = HUDBurstPolicy()
         for index in 1...3 {
             precondition(burst.compact(style: .iOSVolume, value: Double(index) / 10, visible: index > 1, mode: .automatic, now: Double(index) * 0.15))

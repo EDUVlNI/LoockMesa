@@ -15,7 +15,7 @@ class HUDManager: ObservableObject {
         didSet {
             guard oldValue != position else { return }
             UserDefaults.standard.set(position.rawValue, forKey: "GergelimHUDPosition")
-            if HUDState.shared.isVisible && HUDState.shared.style != .nowPlayingClassic {
+            if HUDState.shared.isVisible && !HUDState.shared.style.atTop {
                 showHUD(style: HUDState.shared.style, value: HUDState.shared.value)
             }
         }
@@ -27,6 +27,16 @@ class HUDManager: ObservableObject {
     @Published var transitionMode = HUDTransitionMode(rawValue: UserDefaults.standard.string(forKey: "GergelimHUDTransition") ?? "") ?? .slide {
         didSet { guard oldValue != transitionMode else { return }; UserDefaults.standard.set(transitionMode.rawValue, forKey: "GergelimHUDTransition") }
     }
+    @Published var connectionNotifications = UserDefaults.standard.object(forKey: "GergelimConnectionPopups") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(connectionNotifications, forKey: "GergelimConnectionPopups")
+            if !connectionNotifications {
+                pendingConnections.removeAll()
+                if HUDState.shared.style == .deviceConnection { stop() }
+            }
+        }
+    }
+    private var pendingConnections: [BluetoothReading] = []
     private var hudWindow: NSPanel?
 
     static let shared = HUDManager()
@@ -67,6 +77,7 @@ class HUDManager: ObservableObject {
     }
 
     func stop() {
+        pendingConnections.removeAll()
         presentationGeneration &+= 1
         hideWorkItem?.invalidate()
         HUDState.shared.hide()
@@ -76,10 +87,33 @@ class HUDManager: ObservableObject {
         isHovered = false
     }
 
+    func showDeviceConnection(_ device: BluetoothReading) {
+        guard connectionNotifications else { return }
+        guard !pendingConnections.contains(where: { $0.id == device.id }) else { return }
+        if isInteracting || (HUDState.shared.isVisible && HUDState.shared.style == .deviceConnection) {
+            pendingConnections.append(device)
+            if pendingConnections.count > 8 { pendingConnections.removeFirst() }
+        } else {
+            HUDState.shared.connectedDevice = device
+            showHUD(style: .deviceConnection, value: 0)
+        }
+    }
+    func refreshConnectedDevices(_ devices: [BluetoothReading]) {
+        pendingConnections = pendingConnections.compactMap { queued in devices.first { $0.id == queued.id } }
+        guard let current = HUDState.shared.connectedDevice else { return }
+        if let latest = devices.first(where: { $0.id == current.id }) {
+            if current != latest { HUDState.shared.connectedDevice = latest }
+        } else if HUDState.shared.style == .deviceConnection { HUDState.shared.hide() }
+    }
     func showNowPlaying() {
+        guard !(HUDState.shared.isVisible && HUDState.shared.style == .deviceConnection) else { return }
         showHUD(style: .nowPlayingClassic, value: 0)
     }
 
+    private func HUDPresentConnection(_ device: BluetoothReading) {
+        HUDState.shared.connectedDevice = device
+        showHUD(style: .deviceConnection, value: 0)
+    }
     private func showHUD(style: HUDStyle, value: Double) {
         dispatchPrecondition(condition: .onQueue(.main))
         guard value.isFinite else { return }
@@ -142,7 +176,7 @@ class HUDManager: ObservableObject {
         HUDState.shared.show(style: style, value: value, animateLevel: false)
 
         // Redimensionar a janela para acomodar as animações vindas de fora da tela
-        let contentSize = style == .nowPlayingClassic ? NSSize(width: 450, height: 200) : NSSize(width: position.horizontal ? 300 : 200, height: 300)
+        let contentSize = style.atTop ? NSSize(width: 450, height: 200) : NSSize(width: position.horizontal ? 300 : 200, height: 300)
         if window.contentView?.frame.size != contentSize { window.setContentSize(contentSize) }
 
         // Posicionar ancorado exatamente na borda da tela
@@ -150,12 +184,12 @@ class HUDManager: ObservableObject {
             var x: CGFloat = screen.frame.midX - window.frame.width / 2
             var y: CGFloat = screen.frame.midY - window.frame.height / 2
 
-            if style != .nowPlayingClassic {
+            if !style.atTop {
                 // Colado na borda esquerda
                 let origin = position.origin(screen: screen.frame, size: window.frame.size)
                 x = origin.x
                 y = origin.y
-            } else if style == .nowPlayingClassic {
+            } else if style.atTop {
                 // Colado no topo da tela
                 y = screen.frame.maxY - window.frame.height
             }
@@ -170,7 +204,7 @@ class HUDManager: ObservableObject {
         guard !isHovered && !isInteracting else { return }
 
         // Criar novo timer para esconder (aumentado para 3 segundos para Touch Bar e evitar fechar rápido)
-        let hideTask = Timer(timeInterval: 2.3, repeats: false) { [weak self] _ in
+        let hideTask = Timer(timeInterval: style == .deviceConnection ? 3.2 : 2.3, repeats: false) { [weak self] _ in
             guard let self = self, self.presentationGeneration == generation, !self.isInteracting, !self.isHovered else { return }
             HUDState.shared.hide()
 
@@ -178,6 +212,10 @@ class HUDManager: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
                 guard self.presentationGeneration == generation else { return }
                 self.hudWindow?.orderOut(nil)
+                if self.connectionNotifications && !self.pendingConnections.isEmpty {
+                    let next = self.pendingConnections.removeFirst()
+                    self.HUDPresentConnection(next)
+                }
             }
         }
 

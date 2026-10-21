@@ -3,17 +3,20 @@ import Foundation
 struct BluetoothReading: Equatable, Identifiable {
     let name: String
     var deviceType: String = ""
+    var address: String = ""
     let overall: Int?
     let left: Int?
     let right: Int?
     let caseLevel: Int?
-    var id: String { name }
+    var id: String { address.isEmpty ? BluetoothConnectionTracker.key(name) : Self.normalizedAddress(address) }
+    static func normalizedAddress(_ value: String) -> String { value.lowercased().filter { $0.isHexDigit } }
     var isFreeClip: Bool { name.lowercased().replacingOccurrences(of: " ", with: "").contains("freeclip") }
+    var isArcMouse: Bool { let text = name.lowercased(); return text.contains("arc") && (text.contains("microsoft") || text.contains("surface")) }
     var symbol: String {
         let text = (deviceType + " " + name).lowercased()
         if text.contains("keyboard") || text.contains("teclado") { return "keyboard" }
         if text.contains("trackpad") { return "rectangle.and.hand.point.up.left" }
-        if text.contains("mouse") { return "computermouse" }
+        if isArcMouse || text.contains("mouse") { return "computermouse" }
         if isFreeClip || text.contains("head") || text.contains("airpod") || text.contains("buds") || text.contains("fone") { return "headphones" }
         if text.contains("speaker") { return "hifispeaker" }
         if text.contains("gamepad") || text.contains("controller") { return "gamecontroller" }
@@ -35,6 +38,7 @@ enum BluetoothReport {
         var readings: [BluetoothReading] = []
         func add(_ name: String, _ info: [String: Any]) {
             readings.append(BluetoothReading(name: name, deviceType: info["device_minorType"] as? String ?? info["device_type"] as? String ?? "",
+                address: info["device_address"] as? String ?? "",
                 overall: percent(info["device_batteryLevelMain"] ?? info["device_batteryLevel"]),
                 left: percent(info["device_batteryLevelLeft"]), right: percent(info["device_batteryLevelRight"]),
                 caseLevel: percent(info["device_batteryLevelCase"])))
@@ -57,12 +61,13 @@ enum BluetoothReport {
     }
 }
 
-/// Only confirmed battery readings become visible entries; never placeholder slots.
+/// Connected devices remain visible when their battery is unavailable.
 struct BatteryEntry: Identifiable, Equatable {
     let id: String
     let label: String
     let symbol: String
-    let value: Int
+    let value: Int?
+    var arcMouse = false
     var freeClip = false
     var charging = false
     static func entries(mac: Int?, charging: Bool, readings: [BluetoothReading]) -> [BatteryEntry] {
@@ -73,11 +78,28 @@ struct BatteryEntry: Identifiable, Equatable {
             if r.left != nil || r.right != nil {
                 if let value = r.left { result.append(.init(id: r.id + ".left", label: r.name + " E", symbol: r.symbol, value: value, freeClip: r.isFreeClip)) }
                 if let value = r.right { result.append(.init(id: r.id + ".right", label: r.name + " D", symbol: r.symbol, value: value, freeClip: r.isFreeClip)) }
-            } else if let value = r.overall {
-                result.append(.init(id: r.id + ".main", label: r.isFreeClip ? "FreeClip" : r.name, symbol: r.symbol, value: value, freeClip: r.isFreeClip))
+            } else {
+                result.append(.init(id: r.id + ".main", label: r.isFreeClip ? "FreeClip" : r.name, symbol: r.symbol, value: r.overall, arcMouse: r.isArcMouse, freeClip: r.isFreeClip))
             }
             if let value = r.caseLevel { result.append(.init(id: r.id + ".case", label: r.name + " · Estojo", symbol: "case", value: value)) }
         }
         return result
+    }
+}
+
+
+struct BluetoothConnectionTracker {
+    private var known: Set<String> = []
+    private var initialized = false
+    static func key(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+    mutating func update(_ readings: [BluetoothReading], announce: Bool = true) -> [BluetoothReading] {
+        let next = Set(readings.map(\.id))
+        var emitted = Set<String>()
+        let added = initialized && announce ? readings.filter {
+            let key = $0.id
+            return !known.contains(key) && emitted.insert(key).inserted
+        } : []
+        known = next; initialized = true
+        return added
     }
 }

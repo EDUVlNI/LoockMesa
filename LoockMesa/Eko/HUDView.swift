@@ -8,6 +8,8 @@ enum HUDStyle: String, CaseIterable, Identifiable {
     case iOSDisplay = "iOS Tela"
     case iOSKeyboard = "iOS Teclado"
     case nowPlayingClassic = "Now Playing Classic"
+    case deviceConnection = "Dispositivo conectado"
+    var atTop: Bool { self == .nowPlayingClassic || self == .deviceConnection }
     var id: String { self.rawValue }
 }
 
@@ -81,6 +83,8 @@ struct HUDView: View {
             switch state.style {
             case .iOSVolume, .iOSDisplay, .iOSKeyboard:
                 IOSHUDView(value: state.value, icon: state.style == .iOSVolume ? "speaker.wave.3.fill" : state.style == .iOSDisplay ? "sun.max.fill" : "keyboard", isVisible: state.isVisible, setLevel: state.setLevel, editing: state.editing, position: state.position, compact: state.compact, transition: state.transition, hovering: state.hovering)
+            case .deviceConnection:
+                if let device = state.connectedDevice { DeviceConnectionView(device: device, isVisible: state.isVisible) }
             case .nowPlayingClassic:
                 NowPlayingClassicView(value: state.value, icon: "music.note", isVisible: state.isVisible)
             }
@@ -578,6 +582,7 @@ extension AnyTransition {
 class HUDState: ObservableObject {
     static let shared = HUDState()
 
+    @Published var connectedDevice: BluetoothReading?
     @Published var compact = false
     @Published var transition: HUDTransitionMode = .slide
     var presentationMode: HUDPresentationMode = .automatic
@@ -616,4 +621,46 @@ class HUDState: ObservableObject {
 
 struct FreeClipIconView: View {
     var body: some View { EkoFreeClipIcon() }
+}
+
+
+struct DeviceConnectionView: View {
+    let device: BluetoothReading
+    let isVisible: Bool
+    @State private var presented = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        HStack(spacing: 14) {
+            BluetoothDeviceIcon(device: device).frame(width: 48, height: 44)
+                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Conectado a").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                Text(device.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if let percent = device.primary {
+                VStack(spacing: 4) {
+                    Image(systemName: "battery.100").font(.system(size: 18))
+                    Text("\(percent)%").font(.system(size: 12, weight: .medium)).monospacedDigit()
+                }.foregroundStyle(.white.opacity(0.85))
+            } else { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 20)) }
+        }
+        .padding(.horizontal, 18).frame(width: 350, height: 76)
+        .foregroundStyle(.white)
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow).environment(\.colorScheme, .dark))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
+        .blur(radius: presented || reduceMotion ? 0 : 6)
+        .offset(y: presented ? 30 : reduceMotion ? 30 : -90)
+        .opacity(presented ? 1 : 0)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.9), value: presented)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .task(id: isVisible) {
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            presented = isVisible
+        }
+        .accessibilityElement(children: .combine)
+    }
 }

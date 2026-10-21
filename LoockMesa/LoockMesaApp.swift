@@ -34,6 +34,7 @@ struct GergelimApp: App {
     private var lastReveal = Date.distantPast
     private var asleep = false
     private var screenAsleep = false
+    private var screenLocked = false
     private var lastClockPause: Bool?
     private func updateActivity() {
         let paused = asleep || screenAsleep || (!showingWidgets && gallery?.isVisible != true)
@@ -46,7 +47,7 @@ struct GergelimApp: App {
             enabled: MediaRemoteWrapper.shared.wantsPlayback || (showingWidgets && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
         LyricsService.shared.configure(enabled: (showingWidgets && store.item(.musicLyrics).enabled))
         MusicService.shared.setPaused(asleep || screenAsleep || (paused && !MediaRemoteWrapper.shared.wantsPlayback))
-        devices.setPaused(paused); bluetooth.setPaused(paused)
+        devices.setPaused(paused); bluetooth.setPaused(asleep || screenAsleep || screenLocked)
         agenda.setPaused(paused); weather.setPaused(paused)
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -55,6 +56,8 @@ struct GergelimApp: App {
         integration = LumeCoordinator.shared
         LumeCoordinator.migratePreferences()
         integration?.start()
+        bluetooth.onConnected = { device in HUDManager.shared.showDeviceConnection(device) }
+        bluetooth.onUpdated = { devices in HUDManager.shared.refreshConnectedDevices(devices) }
         CursorThemeService.shared.start()
         activityObservers.append(NotificationCenter.default.addObserver(forName: .gergelimPlayerSettingsChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.updateActivity() }
@@ -125,16 +128,19 @@ struct GergelimApp: App {
         // Never drives authentication or treats the event as a security guarantee.
         lockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in
+                self?.screenLocked = true
+                self?.updateActivity()
+                HUDManager.shared.stop()
                 self?.hideGallery()
                 self?.lastReveal = .distantPast
                 self?.desktop?.prepareUnlock()
             }
         }
         unlockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.revealDesktop() }
+            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.revealDesktop() }
         }
         activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.revealDesktop() }
+            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.revealDesktop() }
         })
     }
     private func refreshDesktopFocus(_ app: NSRunningApplication?) {

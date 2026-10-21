@@ -46,6 +46,7 @@ struct BatteryRing: View {
     let value: Int?
     var dimension: CGFloat = 58
     var freeClip = false
+    var arcMouse = false
     var charging = false
     var light = false
     var monochrome = false
@@ -65,7 +66,9 @@ struct BatteryRing: View {
                     .shadow(color: .black.opacity(0.32), radius: dimension * 0.025, x: dimension * 0.025, y: dimension * 0.012)
                     .rotationEffect(.degrees(-90))
             }
-            if freeClip {
+            if arcMouse {
+                ArcMouseIcon().frame(width: dimension * 0.57, height: dimension * 0.43).foregroundStyle(ink)
+            } else if freeClip {
                 FreeClipIcon().frame(width: dimension * 0.50, height: dimension * 0.53).foregroundStyle(ink)
             } else if !symbol.isEmpty {
                 Image(systemName: symbol == "laptopcomputer" ? DeviceService.nativeMacSymbol : symbol)

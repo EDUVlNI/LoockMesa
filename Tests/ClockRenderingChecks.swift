@@ -46,6 +46,18 @@ import AppKit
             try data.write(to: outputDirectory.appendingPathComponent(file))
             return data
         }
+        let arc = BluetoothReading(name: "Microsoft Arc de Eduardo", overall: 63, left: nil, right: nil, caseLevel: nil)
+        let connectionHost = NSHostingView(rootView: DeviceConnectionView(device: arc, isVisible: true).background(Color(red: 0.12, green: 0.13, blue: 0.16)))
+        connectionHost.frame = CGRect(x: 0, y: 0, width: 450, height: 200)
+        let connectionWindow = NSWindow(contentRect: connectionHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        connectionWindow.contentView = connectionHost
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        _ = try capture(connectionHost, "bluetooth-arc-popup.png")
+        let arcHost = NSHostingView(rootView: BatteryRing(symbol: "computermouse", value: 63, dimension: 100, arcMouse: true).padding(24).background(Color(red: 0.16, green: 0.17, blue: 0.32)))
+        arcHost.frame = CGRect(x: 0, y: 0, width: 148, height: 148)
+        let arcWindow = NSWindow(contentRect: arcHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        arcWindow.contentView = arcHost
+        _ = try capture(arcHost, "bluetooth-arc-ring.png")
         let analogHost = NSHostingView(rootView: analog(false))
         analogHost.frame = CGRect(x: 0, y: 0, width: 164, height: 164)
         let analogWindow = NSWindow(contentRect: analogHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -186,7 +198,7 @@ import AppKit
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
             _ = try capture(host, "gergelim-\(page.id).png")
         }
-        withExtendedLifetime((analogWindow, digitalWindow, previewWindows)) {}
+        withExtendedLifetime((analogWindow, digitalWindow, connectionWindow, arcWindow, previewWindows)) {}
 
     }
 }
