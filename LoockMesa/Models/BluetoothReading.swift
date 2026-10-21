@@ -89,17 +89,16 @@ struct BatteryEntry: Identifiable, Equatable {
 
 
 struct BluetoothConnectionTracker {
-    private var known: Set<String> = []
+    private var known: [BluetoothReading] = []
     private var initialized = false
     static func key(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
     mutating func update(_ readings: [BluetoothReading], announce: Bool = true) -> [BluetoothReading] {
-        let next = Set(readings.map(\.id))
         var emitted = Set<String>()
-        let added = initialized && announce ? readings.filter {
-            let key = $0.id
-            return !known.contains(key) && emitted.insert(key).inserted
+        let added = initialized && announce ? readings.filter { item in
+            let existed = known.contains { $0.id == item.id || Self.key($0.name) == Self.key(item.name) }
+            return !existed && emitted.insert(item.id).inserted
         } : []
-        known = next; initialized = true
+        known = readings; initialized = true
         return added
     }
 }

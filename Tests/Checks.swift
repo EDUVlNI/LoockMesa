@@ -249,6 +249,9 @@ struct Checks {
         var connections = BluetoothConnectionTracker()
         assert(connections.update([arc]).isEmpty) // startup is silent
         assert(connections.update([arc]).isEmpty) // battery refresh is silent
+        var enrichedArc = arc; enrichedArc.address = "AA:BB:CC:DD:EE:FF"
+        assert(connections.update([enrichedArc]).isEmpty) // address enrichment is not a connection
+        assert(connections.update([arc]).isEmpty)
         assert(connections.update([]).isEmpty)
         assert(connections.update([arc, arc]).count == 1) // reconnect, deduplicated
         let separate = BluetoothReading(name: "Fones", overall: 80, left: 80, right: 70, caseLevel: 50)

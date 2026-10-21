@@ -118,6 +118,7 @@ class HUDManager: ObservableObject {
         dispatchPrecondition(condition: .onQueue(.main))
         guard value.isFinite else { return }
         if isInteracting && HUDState.shared.style != style { return }
+        if HUDState.shared.style != style { isHovered = false }
         presentationGeneration &+= 1
         let generation = presentationGeneration
         if hudWindow == nil {
