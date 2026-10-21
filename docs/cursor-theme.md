@@ -9,3 +9,7 @@ Before any registration, existing compatible cursors are captured and saved atom
 Private API ABI reference: Alex Zielenski / Alacatia Labs, CGSInternal/CGSCursor.h in https://github.com/alexzielenski/Mousecape (184f87b5d8ba52e0529f0ca8a7bd15b25b101358). This implementation is independent Swift code; Mousecape application code is not bundled. The uploaded artwork's metadata identifies Apple, Inc.; this does not establish independent provenance or redistribution rights.
 
 Automated tests decode every representation, verify frame geometry and exact hotspot preservation, round-trip the recovery serialization and reject invalid input. CI does not globally apply the theme. Required on-device tests: Ventura 13.7.8 Intel activation, arrow/I-beam/resize/hand/wait, dragging and exact click position, Retina/external displays, wake, disable/quit/relaunch and recovery after forced termination. Native API compatibility is unverified until these tests run.
+
+## Ventura correction (1.4.1)
+
+The uploaded diagnostic confirmed CGError 1000 for com.apple.coregraphics.Wait both on application and restoration. This identifier is now excluded from registration, snapshots and reapplication; the system wait cursor stays native. Recovery of 1.4.0 snapshots skips Wait, which the failed registration never replaced, while still restoring all other entries and retaining genuine restoration failures. The UI reports the compatible count and the native wait cursor exception. No artwork was modified.

@@ -71,7 +71,20 @@ private enum CursorThemeError: LocalizedError {
     }
 }
 
-private final class NativeCursorRegistry {
+protocol CursorRegistry {
+    func read(_ name: String) -> CursorArtwork?
+    func write(_ name: String, _ artwork: CursorArtwork) throws
+}
+
+private enum CursorCompatibility {
+    // Ventura rejects this WindowServer-owned cursor with CGError 1000, even
+    // when registering its own original images. Leave it entirely native.
+    static func canRegister(_ name: String) -> Bool {
+        name != "com.apple.coregraphics.Wait"
+    }
+}
+
+private final class NativeCursorRegistry: CursorRegistry {
     typealias Connection = @convention(c) () -> Int32
     typealias Register = @convention(c) (Int32, UnsafePointer<CChar>, Bool, Bool, CGSize, CGPoint, UInt, Double, CFArray, UnsafeMutablePointer<Int32>) -> Int32
     typealias CopyNamed = @convention(c) (Int32, UnsafePointer<CChar>, UnsafeMutablePointer<CGSize>, UnsafeMutablePointer<CGPoint>, UnsafeMutablePointer<UInt>, UnsafeMutablePointer<Double>, UnsafeMutablePointer<Unmanaged<CFArray>?>) -> Int32
@@ -137,14 +150,24 @@ final class CursorThemeService: ObservableObject {
     @Published private(set) var enabled = false
     @Published private(set) var status = "Use os ponteiros Golden Gate no macOS."
     private let preference = "GergelimGoldenGateCursor"
-    private var registry: NativeCursorRegistry?
+    private var registry: CursorRegistry?
+    private let registryFactory: () throws -> CursorRegistry
+    private let defaults: UserDefaults
+    private let backupLocation: URL?
+    private let themeLocation: URL?
+
+    init(registryFactory: (() throws -> CursorRegistry)? = nil,
+         backupURL: URL? = nil, themeURL: URL? = nil, defaults: UserDefaults = .standard) {
+        self.registryFactory = registryFactory ?? { try NativeCursorRegistry() }
+        self.backupLocation = backupURL; self.themeLocation = themeURL; self.defaults = defaults
+    }
     private var originals: [String: CursorArtwork] = [:]
     private var theme: [String: CursorArtwork] = [:]
     private var observers: [NSObjectProtocol] = []
     private var reapplyWork: DispatchWorkItem?
     private var started = false
     private var backupURL: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        backupLocation ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Gergelim/CursorOriginals.plist")
     }
 
@@ -155,7 +178,7 @@ final class CursorThemeService: ObservableObject {
             do { try prepareRegistry(); originals = try load(backupURL); try restore() }
             catch { status = error.localizedDescription; return }
         }
-        if UserDefaults.standard.bool(forKey: preference) { setEnabled(true) }
+        if defaults.bool(forKey: preference) { setEnabled(true) }
         let center = NSWorkspace.shared.notificationCenter
         for event in [NSWorkspace.didWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             observers.append(center.addObserver(forName: event, object: nil, queue: .main) { [weak self] _ in
@@ -174,12 +197,12 @@ final class CursorThemeService: ObservableObject {
             if value {
                 // Never overwrite an existing recovery snapshot with themed cursors.
                 if !originals.isEmpty { try restore() }
-                guard let url = Bundle.main.url(forResource: "GoldenGate", withExtension: "cape") else {
+                guard let url = themeLocation ?? Bundle.main.url(forResource: "GoldenGate", withExtension: "cape") else {
                     throw CursorThemeError.unavailable("arquivo GoldenGate.cape")
                 }
                 let loaded = try load(url)
                 theme.removeAll()
-                for (name, artwork) in loaded {
+                for (name, artwork) in loaded where CursorCompatibility.canRegister(name) {
                     if let original = registry?.read(name) {
                         originals[name] = original; theme[name] = artwork
                     }
@@ -190,15 +213,15 @@ final class CursorThemeService: ObservableObject {
                 try saveOriginals() // durable before the first global mutation
                 try apply()
                 enabled = true
-                status = "Golden Gate ativo: \(theme.count) de \(loaded.count) ponteiros compatíveis."
+                status = "Golden Gate ativo: \(theme.count) de \(loaded.count) ponteiros compatíveis. O cursor de espera permanece nativo."
             } else {
                 try restore()
                 enabled = false; status = "Ponteiros originais restaurados."
             }
-            UserDefaults.standard.set(value, forKey: preference)
+            defaults.set(value, forKey: preference)
         } catch {
             let message = error.localizedDescription
-            do { try restore(); enabled = false; UserDefaults.standard.set(false, forKey: preference); status = message }
+            do { try restore(); enabled = false; defaults.set(false, forKey: preference); status = message }
             catch { status = "\(message) Restauração pendente: \(error.localizedDescription)" }
         }
     }
@@ -215,7 +238,7 @@ final class CursorThemeService: ObservableObject {
     }
 
     private func prepareRegistry() throws {
-        if registry == nil { registry = try NativeCursorRegistry() }
+        if registry == nil { registry = try registryFactory() }
     }
     private func load(_ url: URL) throws -> [String: CursorArtwork] {
         let data = try Data(contentsOf: url)
@@ -232,13 +255,15 @@ final class CursorThemeService: ObservableObject {
     }
     private func apply() throws {
         guard let registry else { throw CursorThemeError.unavailable("registro") }
-        for name in theme.keys.sorted() { try registry.write(name, theme[name]!) }
+        for name in theme.keys.sorted() where CursorCompatibility.canRegister(name) { try registry.write(name, theme[name]!) }
     }
     private func restore() throws {
         guard !originals.isEmpty else { return }
         guard let registry else { throw CursorThemeError.unavailable("restauração") }
         var failure: Error?
-        for name in originals.keys.sorted() {
+        // 1.4.0 saved Wait before discovering that it cannot be registered.
+        // It was never replaced, so legacy recovery must not try to rewrite it.
+        for name in originals.keys.sorted() where CursorCompatibility.canRegister(name) {
             do { try registry.write(name, originals[name]!) } catch { failure = error }
         }
         if let failure { throw failure }
