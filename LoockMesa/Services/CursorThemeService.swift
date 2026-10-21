@@ -30,10 +30,12 @@ struct CursorArtwork {
               let reps = dictionary["Representations"] as? [Data], !reps.isEmpty else {
             throw CursorThemeError.invalid("dimensões ou ponto de clique")
         }
+        let frameCount = frames
+        let pointSize = size
         images = try reps.map { data in
             guard let rep = NSBitmapImageRep(data: data), let image = rep.cgImage,
-                  image.height % frames == 0,
-                  abs(Double(image.width) / size.width - Double(image.height / frames) / size.height) < 0.01 else {
+                  image.height % frameCount == 0,
+                  abs(Double(image.width) / pointSize.width - Double(image.height / frameCount) / pointSize.height) < 0.01 else {
                 throw CursorThemeError.invalid("imagem ou animação")
             }
             return image
