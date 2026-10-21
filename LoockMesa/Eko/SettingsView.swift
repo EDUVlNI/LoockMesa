@@ -9,6 +9,7 @@ struct IntegrationSettingsView: View {
     let player: MediaRemoteWrapper
     @ObservedObject private var keys = MediaKeyManager.shared
     @ObservedObject private var native = NativeHUDController.shared
+    @ObservedObject private var cursorTheme = CursorThemeService.shared
     @State private var contentRevision: UInt = 0
     let selected: Page
     enum Page: String, CaseIterable, Identifiable {
@@ -136,6 +137,11 @@ struct IntegrationSettingsView: View {
                 Text("Use os aplicativos instalados. Navegadores, chamadas e outras fontes de áudio não aparecem no player.").font(.caption).foregroundStyle(.secondary)
             }
         case .appearance:
+            card("Ponteiro") {
+                Toggle("Usar ponteiro Golden Gate", isOn: Binding(get: { cursorTheme.enabled }, set: { cursorTheme.setEnabled($0) }))
+                Text(cursorTheme.status).font(.caption).foregroundStyle(.secondary)
+                Text("Mantém o ponto de clique e as animações do tema. Ao desativar ou encerrar o Gergelim, restaura os ponteiros anteriores. Apps com cursores próprios podem manter seu desenho.").font(.caption).foregroundStyle(.secondary)
+            }
             card("Cantos da tela") {
                 Toggle("Arredondar cantos", isOn: $corners.isEnabled)
                 HStack { Text("Raio dos cantos"); Spacer(); Text("\(Int(corners.radius)) pt").monospacedDigit() }

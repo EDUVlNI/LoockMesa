@@ -55,6 +55,7 @@ struct GergelimApp: App {
         integration = LumeCoordinator.shared
         LumeCoordinator.migratePreferences()
         integration?.start()
+        CursorThemeService.shared.start()
         activityObservers.append(NotificationCenter.default.addObserver(forName: .gergelimPlayerSettingsChanged, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor [weak self] in self?.updateActivity() }
         })
@@ -162,6 +163,7 @@ struct GergelimApp: App {
         desktop?.animateUnlock()
     }
     func applicationWillTerminate(_ notification: Notification) {
+        CursorThemeService.shared.stop()
         integration?.stop()
         desktopFocusTimer?.invalidate()
         galleryObservers.forEach { NotificationCenter.default.removeObserver($0) }
