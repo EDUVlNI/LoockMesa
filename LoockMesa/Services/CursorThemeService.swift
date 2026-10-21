@@ -82,10 +82,11 @@ private final class NativeCursorRegistry {
     private let handles: [UnsafeMutableRawPointer]
 
     init() throws {
-        let loadedHandles = ["/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
+        let paths: [String] = ["/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices",
                    "/System/Library/Frameworks/ApplicationServices.framework/Frameworks/HIServices.framework/HIServices",
                    "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight",
-                   "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"].compactMap { dlopen($0, RTLD_LAZY | RTLD_LOCAL) }
+                   "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics"]
+        let loadedHandles = paths.compactMap { path in path.withCString { dlopen($0, RTLD_LAZY | RTLD_LOCAL) } }
         handles = loadedHandles
         func symbol<T>(_ name: String, _ type: T.Type) throws -> T {
             for handle in loadedHandles {
