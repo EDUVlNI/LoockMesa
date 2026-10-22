@@ -81,7 +81,7 @@ struct BatteryEntry: Identifiable, Equatable {
         var seen = Set<String>()
         for r in readings where seen.insert(r.id).inserted {
             if r.isArcMouse {
-                result.append(.init(id: r.id + ".main", label: r.name + " · Simulado", symbol: r.symbol,
+                result.append(.init(id: r.id + ".main", label: r.name, symbol: r.symbol,
                     value: 100, arcMouse: true, simulated: true))
                 continue
             }
