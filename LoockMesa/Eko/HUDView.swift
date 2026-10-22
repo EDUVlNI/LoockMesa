@@ -638,7 +638,7 @@ struct DeviceConnectionView: View {
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 4) {
                 Text(connected ? "Conectado a" : "Desconectado de").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
-                Text(device.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Text(device.name).font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
             }
             Spacer(minLength: 4)
             if connected, let percent = device.primary {
@@ -648,7 +648,7 @@ struct DeviceConnectionView: View {
                 }.foregroundStyle(.white.opacity(0.85))
             }
             Image(systemName: connected ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(connected ? Color.green : Color.secondary)
+                .foregroundStyle(connected ? Color.green : Color.white.opacity(0.55))
                 .font(.system(size: 20))
                 .scaleEffect(marked ? 1 : 0.35).opacity(marked ? 1 : 0)
                 .blur(radius: marked || reduceMotion ? 0 : 4)
