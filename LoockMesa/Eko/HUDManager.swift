@@ -31,11 +31,16 @@ class HUDManager: ObservableObject {
         didSet {
             UserDefaults.standard.set(connectionNotifications, forKey: "GergelimConnectionPopups")
             if !connectionNotifications {
+                connectionPopup.stop()
                 pendingConnections.removeAll()
                 if HUDState.shared.style == .deviceConnection { stop() }
             }
         }
     }
+    @Published var connectionPopupAtBottom = UserDefaults.standard.bool(forKey: "GergelimConnectionPopupBottom") {
+        didSet { UserDefaults.standard.set(connectionPopupAtBottom, forKey: "GergelimConnectionPopupBottom") }
+    }
+    private let connectionPopup = BluetoothPopupController()
     private var pendingConnections: [BluetoothReading] = []
     private var hudWindow: NSPanel?
 
@@ -77,6 +82,7 @@ class HUDManager: ObservableObject {
     }
 
     func stop() {
+        connectionPopup.stop()
         pendingConnections.removeAll()
         presentationGeneration &+= 1
         hideWorkItem?.invalidate()
@@ -88,22 +94,13 @@ class HUDManager: ObservableObject {
     }
 
     func showDeviceConnection(_ device: BluetoothReading) {
-        guard connectionNotifications else { return }
-        guard !pendingConnections.contains(where: { $0.id == device.id }) else { return }
-        if isInteracting || (HUDState.shared.isVisible && HUDState.shared.style == .deviceConnection) {
-            pendingConnections.append(device)
-            if pendingConnections.count > 8 { pendingConnections.removeFirst() }
-        } else {
-            HUDState.shared.connectedDevice = device
-            showHUD(style: .deviceConnection, value: 0)
-        }
+        if connectionNotifications { connectionPopup.enqueue(device, connected: true, bottom: connectionPopupAtBottom) }
+    }
+    func showDeviceDisconnection(_ device: BluetoothReading) {
+        if connectionNotifications { connectionPopup.enqueue(device, connected: false, bottom: connectionPopupAtBottom) }
     }
     func refreshConnectedDevices(_ devices: [BluetoothReading]) {
-        pendingConnections = pendingConnections.compactMap { queued in devices.first { $0.id == queued.id } }
-        guard let current = HUDState.shared.connectedDevice else { return }
-        if let latest = devices.first(where: { $0.id == current.id }) {
-            if current != latest { HUDState.shared.connectedDevice = latest }
-        } else if HUDState.shared.style == .deviceConnection { HUDState.shared.hide() }
+        connectionPopup.refresh(devices)
     }
     func showNowPlaying() {
         guard !(HUDState.shared.isVisible && HUDState.shared.style == .deviceConnection) else { return }
@@ -1048,5 +1045,88 @@ final class LatestLevelWriter {
                 self.drain()
             }
         }
+    }
+}
+
+/// Device notices own their panel and lifetime, independent of volume/music events.
+private final class BluetoothPopupController {
+    private struct Notice {
+        let id = UUID()
+        var device: BluetoothReading
+        let connected: Bool
+        let bottom: Bool
+    }
+    private var queue: [Notice] = []
+    private var current: Notice?
+    private var panel: NSPanel?
+    private var timer: Timer?
+    private var generation = 0
+    private var hovered = false
+    private var leaving = false
+    func enqueue(_ device: BluetoothReading, connected: Bool, bottom: Bool) {
+        let last = queue.last ?? current
+        if let last, last.device.matches(device), last.connected == connected { return }
+        queue.append(Notice(device: device, connected: connected, bottom: bottom))
+        if queue.count > 12 { queue.removeFirst() }
+        if current == nil { next() }
+    }
+    func refresh(_ devices: [BluetoothReading]) {
+        // A missing/incomplete sample cannot shorten a notification's lifetime.
+        if var notice = current, notice.connected,
+           let latest = devices.first(where: { $0.matches(notice.device) }), latest != notice.device {
+            notice.device = latest; current = notice
+            render(visible: !leaving)
+        }
+        for index in queue.indices where queue[index].connected {
+            if let latest = devices.first(where: { $0.matches(queue[index].device) }) { queue[index].device = latest }
+        }
+    }
+    private func next() {
+        guard !queue.isEmpty else { return }
+        generation += 1; current = queue.removeFirst(); hovered = false; leaving = false
+        let notice = current!
+        if panel == nil {
+            let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
+                styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = false
+            window.level = .floating; window.acceptsMouseMovedEvents = true
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
+            panel = window
+        }
+        if let screen = NSScreen.main, let panel {
+            panel.setFrameOrigin(NSPoint(x: screen.frame.midX - 225,
+                y: notice.bottom ? screen.frame.minY : screen.frame.maxY - 300))
+        }
+        render(visible: true); panel?.orderFront(nil); scheduleHide()
+    }
+    private func render(visible: Bool) {
+        guard let notice = current, let panel else { return }
+        let view = DeviceConnectionView(device: notice.device, isVisible: visible,
+            connected: notice.connected, bottom: notice.bottom)
+            .id(notice.id)
+            .onHover { [weak self] active in
+                guard let self, !self.leaving else { return }
+                self.hovered = active
+                if active { self.timer?.invalidate() } else { self.scheduleHide() }
+            }
+        if let host = panel.contentView as? NSHostingView<AnyView> { host.rootView = AnyView(view) }
+        else { panel.contentView = NSHostingView(rootView: AnyView(view)) }
+    }
+    private func scheduleHide() {
+        timer?.invalidate()
+        let token = generation
+        let task = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
+            guard let self, self.generation == token, !self.hovered else { return }
+            self.leaving = true; self.render(visible: false)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.panel?.orderOut(nil); self.current = nil; self.next()
+            }
+        }
+        timer = task; RunLoop.main.add(task, forMode: .common)
+    }
+    func stop() {
+        generation += 1; timer?.invalidate(); timer = nil
+        queue.removeAll(); current = nil; panel?.orderOut(nil); panel = nil
     }
 }

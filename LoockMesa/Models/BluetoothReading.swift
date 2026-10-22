@@ -10,6 +10,10 @@ struct BluetoothReading: Equatable, Identifiable {
     let caseLevel: Int?
     var id: String { address.isEmpty ? BluetoothConnectionTracker.key(name) : Self.normalizedAddress(address) }
     static func normalizedAddress(_ value: String) -> String { value.lowercased().filter { $0.isHexDigit } }
+    func matches(_ other: BluetoothReading) -> Bool {
+        (!address.isEmpty && !other.address.isEmpty && id == other.id) ||
+        BluetoothConnectionTracker.key(name) == BluetoothConnectionTracker.key(other.name)
+    }
     var isFreeClip: Bool { name.lowercased().replacingOccurrences(of: " ", with: "").contains("freeclip") }
     var isArcMouse: Bool { let text = name.lowercased(); return text.contains("arc") && (text.contains("microsoft") || text.contains("surface")) }
     var symbol: String {
@@ -91,8 +95,10 @@ struct BatteryEntry: Identifiable, Equatable {
 struct BluetoothConnectionTracker {
     private var known: [BluetoothReading] = []
     private var initialized = false
+    private(set) var removed: [BluetoothReading] = []
     static func key(_ name: String) -> String { name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
     mutating func update(_ readings: [BluetoothReading], announce: Bool = true) -> [BluetoothReading] {
+        removed = initialized && announce ? known.filter { old in !readings.contains { $0.matches(old) } } : []
         var emitted = Set<String>()
         let added = initialized && announce ? readings.filter { item in
             let existed = known.contains { $0.id == item.id || Self.key($0.name) == Self.key(item.name) }

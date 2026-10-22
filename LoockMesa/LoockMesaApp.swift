@@ -56,6 +56,7 @@ struct GergelimApp: App {
         integration = LumeCoordinator.shared
         LumeCoordinator.migratePreferences()
         integration?.start()
+        bluetooth.onDisconnected = { device in HUDManager.shared.showDeviceDisconnection(device) }
         bluetooth.onConnected = { device in HUDManager.shared.showDeviceConnection(device) }
         bluetooth.onUpdated = { devices in HUDManager.shared.refreshConnectedDevices(devices) }
         CursorThemeService.shared.start()

@@ -627,6 +627,9 @@ struct FreeClipIconView: View {
 struct DeviceConnectionView: View {
     let device: BluetoothReading
     let isVisible: Bool
+    var connected = true
+    var bottom = false
+    @State private var marked = false
     @State private var presented = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -634,16 +637,22 @@ struct DeviceConnectionView: View {
             BluetoothDeviceIcon(device: device).frame(width: 48, height: 44)
                 .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Conectado a").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
+                Text(connected ? "Conectado a" : "Desconectado de").font(.system(size: 12)).foregroundStyle(.white.opacity(0.65))
                 Text(device.name).font(.system(size: 15, weight: .semibold)).lineLimit(1)
             }
             Spacer(minLength: 4)
-            if let percent = device.primary {
+            if connected, let percent = device.primary {
                 VStack(spacing: 4) {
                     Image(systemName: "battery.100").font(.system(size: 18))
                     Text("\(percent)%").font(.system(size: 12, weight: .medium)).monospacedDigit()
                 }.foregroundStyle(.white.opacity(0.85))
-            } else { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 20)) }
+            }
+            Image(systemName: connected ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(connected ? Color.green : Color.secondary)
+                .font(.system(size: 20))
+                .scaleEffect(marked ? 1 : 0.35).opacity(marked ? 1 : 0)
+                .blur(radius: marked || reduceMotion ? 0 : 4)
+                .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.36, dampingFraction: 0.64), value: marked)
         }
         .padding(.horizontal, 18).frame(width: 350, height: 76)
         .foregroundStyle(.white)
@@ -652,14 +661,18 @@ struct DeviceConnectionView: View {
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(.white.opacity(0.14), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.22), radius: 18, y: 8)
         .blur(radius: presented || reduceMotion ? 0 : 6)
-        .offset(y: presented ? 30 : reduceMotion ? 30 : -90)
+        .offset(y: bottom ? (presented || reduceMotion ? -110 : 90) : (presented || reduceMotion ? 30 : -90))
         .opacity(presented ? 1 : 0)
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.42, dampingFraction: 0.9), value: presented)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: bottom ? .bottom : .top)
         .task(id: isVisible) {
             await Task.yield()
             guard !Task.isCancelled else { return }
             presented = isVisible
+            if !isVisible { marked = false; return }
+            try? await Task.sleep(nanoseconds: reduceMotion ? 0 : 220_000_000)
+            guard !Task.isCancelled else { return }
+            marked = true
         }
         .accessibilityElement(children: .combine)
     }

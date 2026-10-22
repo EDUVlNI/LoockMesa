@@ -74,8 +74,12 @@ struct IntegrationSettingsView: View {
             Text("Escolha os indicadores e arraste os itens para organizar sua ordem.").foregroundStyle(.secondary)
             ArrangementView(model: model).frame(maxWidth: .infinity)
             card("Conexões Bluetooth") {
-                Toggle("Avisar quando conectar um dispositivo", isOn: $hud.connectionNotifications)
-                Text("Mostra o nome e a bateria disponível no topo da tela. Dispositivos já conectados ao abrir o app não geram avisos.").font(.caption).foregroundStyle(.secondary)
+                Toggle("Avisar ao conectar e desconectar", isOn: $hud.connectionNotifications)
+                Picker("Posição do aviso", selection: $hud.connectionPopupAtBottom) {
+                    Text("Topo da tela").tag(false)
+                    Text("Embaixo, no centro").tag(true)
+                }
+                Text("Mostra o nome e a bateria disponível. O aviso dura 5 segundos e permanece enquanto o mouse estiver sobre ele. Dispositivos já conectados ao abrir o app não geram avisos.").font(.caption).foregroundStyle(.secondary)
             }
             card("Fones de ouvido") {
                 Text(model.headphoneName ?? "Nenhum fone conectado").font(.headline)

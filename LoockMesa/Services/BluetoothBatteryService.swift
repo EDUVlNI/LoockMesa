@@ -1,6 +1,7 @@
 import Foundation
 import IOBluetooth
 import IOKit
+import CoreBluetooth
 
 final class BluetoothBatteryService: NSObject, ObservableObject {
     @Published private(set) var devices: [BluetoothReading] = []
@@ -8,6 +9,9 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
     @Published private(set) var updated: Date?
     @Published private(set) var refreshing = false
     var onUpdated: (([BluetoothReading]) -> Void)?
+    var onDisconnected: ((BluetoothReading) -> Void)?
+    private var batteryCache: [String: (Int, Date)] = [:]
+    private var batteryReader: ConnectedBatteryReader?
     var onConnected: ((BluetoothReading) -> Void)?
     private var tracker = BluetoothConnectionTracker()
     private var timer: Timer?
@@ -25,12 +29,22 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
     func setPaused(_ value: Bool) {
         guard paused != value else { return }
         paused = value; epoch += 1
-        if value { retry?.cancel() }
+        if value { retry?.cancel(); batteryReader?.pause() }
         else { refresh() }
     }
     init(automatic: Bool = true) {
         super.init()
         if automatic {
+            batteryReader = ConnectedBatteryReader { [weak self] name, level in
+                guard let self, !self.paused,
+                      let index = self.devices.firstIndex(where: { BluetoothConnectionTracker.key($0.name) == BluetoothConnectionTracker.key(name) }) else { return }
+                self.batteryCache[BluetoothConnectionTracker.key(name)] = (level, Date())
+                let old = self.devices[index]
+                var values = self.devices
+                values[index] = BluetoothReading(name: old.name, deviceType: old.deviceType, address: old.address,
+                    overall: level, left: old.left, right: old.right, caseLevel: old.caseLevel)
+                self.publish(values, announce: false)
+            }
             let native = nativeDevices()
             publish(native, announce: false)
             connectNotification = IOBluetoothDevice.register(forConnectNotifications: self, selector: #selector(connected(_:device:)))
@@ -112,19 +126,22 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
             guard let self else { return }
             self.epoch += 1
             let key = BluetoothConnectionTracker.key(self.reading(device).name)
+            self.batteryCache.removeValue(forKey: key)
             self.disconnectNotifications.removeValue(forKey: key)?.unregister()
-            self.publish(self.devices.filter { BluetoothConnectionTracker.key($0.name) != key }, announce: false)
+            self.publish(self.devices.filter { BluetoothConnectionTracker.key($0.name) != key }, announce: !self.paused)
             self.refresh()
         }
     }
     private func publish(_ values: [BluetoothReading], announce: Bool) {
         let additions = tracker.update(values, announce: announce)
         if devices != values { devices = values; onUpdated?(values) }
+        for item in tracker.removed { onDisconnected?(item) }
         for item in additions { onConnected?(item) }
     }
     func refresh() {
         guard !paused else { return }
         guard !refreshing else { rerun = true; return }
+        batteryReader?.refresh()
         refreshing = true
         let generation = epoch
         let native = nativeDevices()
@@ -153,7 +170,14 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
                 if generation == self.epoch {
                     // A failed query is not a disconnect and must not create reconnection popups.
                     if valid {
-                        self.publish(values, announce: !self.firstReport)
+                        let currentNames = Set(values.map { BluetoothConnectionTracker.key($0.name) })
+                        self.batteryCache = self.batteryCache.filter { currentNames.contains($0.key) && Date().timeIntervalSince($0.value.1) < 300 }
+                        let enriched = values.map { item -> BluetoothReading in
+                            guard let cached = self.batteryCache[BluetoothConnectionTracker.key(item.name)] else { return item }
+                            return BluetoothReading(name: item.name, deviceType: item.deviceType, address: item.address,
+                                overall: item.overall ?? cached.0, left: item.left, right: item.right, caseLevel: item.caseLevel)
+                        }
+                        self.publish(enriched, announce: !self.firstReport)
                         self.firstReport = false; self.updated = Date()
                         self.status = values.isEmpty ? "Nenhum dispositivo conectado" : "Dispositivos conectados · — indica bateria não informada"
                     } else { self.status = "Leitura de bateria indisponível; aguardando atualização" }
@@ -203,5 +227,70 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
             }
         }
         return result
+    }
+}
+
+/// Reads the standard Battery Service only from peripherals already connected
+/// to macOS. No discovery scan, pairing, writes or persistent connection lease.
+private final class ConnectedBatteryReader: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate {
+    private var central: CBCentralManager!
+    private let battery = CBUUID(string: "180F")
+    private let level = CBUUID(string: "2A19")
+    private var active: [UUID: CBPeripheral] = [:]
+    private var deadlines: [UUID: DispatchWorkItem] = [:]
+    private var paused = false
+    private let received: (String, Int) -> Void
+    init(received: @escaping (String, Int) -> Void) {
+        self.received = received; super.init()
+        central = CBCentralManager(delegate: self, queue: .main,
+            options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        if central.state == .poweredOn && !paused { refresh() }
+    }
+    func refresh() {
+        paused = false
+        guard central.state == .poweredOn else { return }
+        for peripheral in central.retrieveConnectedPeripherals(withServices: [battery, CBUUID(string: "1812")]) {
+            guard active[peripheral.identifier] == nil else { continue }
+            active[peripheral.identifier] = peripheral; peripheral.delegate = self
+            let work = DispatchWorkItem { [weak self, weak peripheral] in
+                if let peripheral { self?.finish(peripheral) }
+            }
+            deadlines[peripheral.identifier] = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: work)
+            central.connect(peripheral, options: nil)
+        }
+    }
+    func pause() {
+        paused = true
+        for peripheral in Array(active.values) { finish(peripheral) }
+    }
+    private func finish(_ peripheral: CBPeripheral) {
+        deadlines.removeValue(forKey: peripheral.identifier)?.cancel()
+        guard active.removeValue(forKey: peripheral.identifier) != nil else { return }
+        peripheral.delegate = nil
+        central.cancelPeripheralConnection(peripheral)
+    }
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard !paused, active[peripheral.identifier] != nil else { finish(peripheral); return }
+        peripheral.discoverServices([battery])
+    }
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) { finish(peripheral) }
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) { finish(peripheral) }
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == battery }) else { finish(peripheral); return }
+        peripheral.discoverCharacteristics([level], for: service)
+    }
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard error == nil, let characteristic = service.characteristics?.first(where: { $0.uuid == level }),
+              characteristic.properties.contains(.read) else { finish(peripheral); return }
+        peripheral.readValue(for: characteristic)
+    }
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        if !paused, active[peripheral.identifier] != nil, error == nil, characteristic.uuid == level,
+           let value = characteristic.value, value.count == 1, let byte = value.first, byte <= 100,
+           let name = peripheral.name { received(name, Int(byte)) }
+        finish(peripheral)
     }
 }
