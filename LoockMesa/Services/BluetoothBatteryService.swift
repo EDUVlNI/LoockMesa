@@ -2,6 +2,7 @@ import Foundation
 import IOBluetooth
 import IOKit
 import CoreBluetooth
+import ObjectiveC
 
 final class BluetoothBatteryService: NSObject, ObservableObject {
     @Published private(set) var devices: [BluetoothReading] = []
@@ -94,7 +95,41 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
     private func reading(_ device: IOBluetoothDevice) -> BluetoothReading {
         let major = (device.classOfDevice >> 8) & 0x1f
         return BluetoothReading(name: device.name ?? device.addressString ?? "Dispositivo Bluetooth",
-            deviceType: major == 4 ? "headphones" : "", address: device.addressString ?? "", overall: nil, left: nil, right: nil, caseLevel: nil)
+            deviceType: major == 4 ? "headphones" : "", address: device.addressString ?? "",
+            overall: Self.nativePercent(device, selectors: ["batteryPercentSingle", "batteryPercentCombined", "headsetBattery"]),
+            left: Self.nativePercent(device, selectors: ["batteryPercentLeft"]),
+            right: Self.nativePercent(device, selectors: ["batteryPercentRight"]),
+            caseLevel: Self.nativePercent(device, selectors: ["batteryPercentCase"]))
+    }
+    /// Runtime checked because these read-only accessors are not public SDK API.
+    /// Zero means unavailable for these native fields; explicit 0% reports remain
+    /// supported by the system_profiler and standard BLE readers.
+    static func nativePercent(_ object: NSObject, selectors: [String]) -> Int? {
+        for name in selectors {
+            let selector = NSSelectorFromString(name)
+            guard object.responds(to: selector),
+                  let method = class_getInstanceMethod(type(of: object), selector),
+                  method_getNumberOfArguments(method) == 2,
+                  let type = method_copyReturnType(method) else { continue }
+            let encoding = String(cString: type); free(type)
+            let implementation = method_getImplementation(method)
+            let value: Int64
+            switch encoding {
+            case "C":
+                typealias Read = @convention(c) (AnyObject, Selector) -> UInt8
+                value = Int64(unsafeBitCast(implementation, to: Read.self)(object, selector))
+            case "q":
+                typealias Read = @convention(c) (AnyObject, Selector) -> Int64
+                value = unsafeBitCast(implementation, to: Read.self)(object, selector)
+            case "Q":
+                typealias Read = @convention(c) (AnyObject, Selector) -> UInt64
+                let raw = unsafeBitCast(implementation, to: Read.self)(object, selector)
+                value = raw <= 100 ? Int64(raw) : -1
+            default: continue
+            }
+            if (1...100).contains(value) { return Int(value) }
+        }
+        return nil
     }
     private func watch(_ device: IOBluetoothDevice) {
         let key = BluetoothConnectionTracker.key(reading(device).name)
@@ -145,6 +180,9 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
         refreshing = true
         let generation = epoch
         let native = nativeDevices()
+        // Make native headset values visible even if system_profiler is slow or fails.
+        let updatedNative = Self.merge(report: native, connected: devices)
+        publish(updatedNative, announce: !firstReport)
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let process = Process(); let pipe = Pipe()
             process.executableURL = URL(fileURLWithPath: "/usr/sbin/system_profiler")

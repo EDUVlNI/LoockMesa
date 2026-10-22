@@ -245,7 +245,8 @@ struct Checks {
         let arc = BluetoothReading(name: "Microsoft Arc de Eduardo", overall: nil, left: nil, right: nil, caseLevel: nil)
         assert(arc.isArcMouse && arc.symbol == "computermouse")
         let arcEntry = BatteryEntry.entries(mac: nil, charging: false, readings: [arc]).first!
-        assert(arcEntry.arcMouse && arcEntry.value == nil)
+        assert(arcEntry.arcMouse && arcEntry.value == 100 && arcEntry.simulated)
+        assert(BatteryEntry.entries(mac: nil, charging: false, readings: []).isEmpty)
         var connections = BluetoothConnectionTracker()
         assert(connections.update([arc]).isEmpty) // startup is silent
         assert(connections.update([arc]).isEmpty) // battery refresh is silent

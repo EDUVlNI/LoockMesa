@@ -1,6 +1,14 @@
 import AppKit
 import Combine
 
+private final class NativeBatteryFixture: NSObject {
+    @objc dynamic var batteryPercentSingle: UInt8 { 10 }
+    @objc dynamic var unavailable: UInt8 { 0 }
+    @objc dynamic var invalid: UInt8 { 255 }
+    @objc dynamic var wide: Int64 { 73 }
+    @objc dynamic var wrongType: String { "50" }
+}
+
 @main
 struct MenuChecks {
     @MainActor static func main() {
@@ -8,6 +16,10 @@ struct MenuChecks {
         precondition(!NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 1), "Calendar notifications must not trigger repeated Notes queries")
         precondition(NotesRefreshPolicy.shouldRead(userInitiated: false, running: true, elapsed: 300))
         precondition(NotesRefreshPolicy.shouldRead(userInitiated: true, running: false, elapsed: 0), "Explicit connection may open Notes")
+        let nativeBattery = NativeBatteryFixture()
+        precondition(BluetoothBatteryService.nativePercent(nativeBattery, selectors: ["batteryPercentSingle"]) == 10)
+        precondition(BluetoothBatteryService.nativePercent(nativeBattery, selectors: ["missing", "unavailable", "invalid", "wrongType"]) == nil)
+        precondition(BluetoothBatteryService.nativePercent(nativeBattery, selectors: ["invalid", "wide"]) == 73)
         let named = BluetoothReading(name: "Microsoft Arc de Eduardo", address: "AA-BB-CC-DD-EE-FF", overall: nil, left: nil, right: nil, caseLevel: nil)
         let hid = BluetoothReading(name: "Surface Arc Mouse", deviceType: "mouse", address: "aa:bb:cc:dd:ee:ff", overall: 63, left: nil, right: nil, caseLevel: nil)
         let merged = BluetoothBatteryService.merge(report: [named], connected: [named, hid])

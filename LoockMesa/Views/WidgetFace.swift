@@ -133,6 +133,15 @@ struct HeadphonesWidget: View {
             BatteryRing(symbol: entry?.symbol ?? "", value: entry?.value, dimension: dimension,
                 freeClip: entry?.freeClip ?? false, arcMouse: entry?.arcMouse ?? false, charging: entry?.charging ?? false,
                 light: light, monochrome: monochrome, lowPower: entry?.symbol == "laptopcomputer" && devices.lowPower)
+                .overlay(alignment: .bottom) {
+                    if entry?.simulated == true {
+                        Text("Simulado").font(.system(size: 8, weight: .medium))
+                            .padding(.horizontal, 3).padding(.vertical, 1)
+                            .background(light ? Color.white : Color.black, in: Capsule())
+                            .offset(y: 4)
+                    }
+                }
+                .help(entry?.simulated == true ? "Arc: 100% simulado, não representa a carga real." : entry?.label ?? "")
             if size != .small {
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
                     AnimatedValue(value: entry?.value.map(String.init) ?? "—")
