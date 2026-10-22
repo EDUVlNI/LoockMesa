@@ -123,7 +123,7 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
     }
     @objc private func disconnected(_ notification: IOBluetoothUserNotification, device: IOBluetoothDevice) {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, !device.isConnected() else { return }
             self.epoch += 1
             let key = BluetoothConnectionTracker.key(self.reading(device).name)
             self.batteryCache.removeValue(forKey: key)

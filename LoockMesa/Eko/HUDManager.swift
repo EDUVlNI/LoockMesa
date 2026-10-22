@@ -1049,7 +1049,11 @@ final class LatestLevelWriter {
 }
 
 /// Device notices own their panel and lifetime, independent of volume/music events.
-private final class BluetoothPopupController {
+final class BluetoothPopupController {
+    private let duration: TimeInterval
+    init(duration: TimeInterval = 5) { self.duration = duration }
+    var isPresenting: Bool { current != nil && !leaving }
+    var queuedCount: Int { queue.count }
     private struct Notice {
         let id = UUID()
         var device: BluetoothReading
@@ -1115,7 +1119,7 @@ private final class BluetoothPopupController {
     private func scheduleHide() {
         timer?.invalidate()
         let token = generation
-        let task = Timer(timeInterval: 5, repeats: false) { [weak self] _ in
+        let task = Timer(timeInterval: duration, repeats: false) { [weak self] _ in
             guard let self, self.generation == token, !self.hovered else { return }
             self.leaving = true; self.render(visible: false)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
