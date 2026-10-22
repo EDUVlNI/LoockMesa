@@ -94,15 +94,16 @@ class HUDManager: ObservableObject {
     }
 
     func showDeviceConnection(_ device: BluetoothReading) {
-        if connectionNotifications { connectionPopup.enqueue(device, connected: true, bottom: connectionPopupAtBottom) }
+        if connectionNotifications { hideNowPlaying(); connectionPopup.enqueue(device, connected: true, bottom: connectionPopupAtBottom) }
     }
     func showDeviceDisconnection(_ device: BluetoothReading) {
-        if connectionNotifications { connectionPopup.enqueue(device, connected: false, bottom: connectionPopupAtBottom) }
+        if connectionNotifications { hideNowPlaying(); connectionPopup.enqueue(device, connected: false, bottom: connectionPopupAtBottom) }
     }
     func refreshConnectedDevices(_ devices: [BluetoothReading]) {
         connectionPopup.refresh(devices)
     }
     func showNowPlaying() {
+        guard !connectionPopup.isPresenting else { return }
         guard !(HUDState.shared.isVisible && HUDState.shared.style == .deviceConnection) else { return }
         showHUD(style: .nowPlayingClassic, value: 0)
     }
@@ -1093,7 +1094,7 @@ final class BluetoothPopupController {
             let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
                 styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.isOpaque = false; window.backgroundColor = .clear; window.hasShadow = false
-            window.level = .floating; window.acceptsMouseMovedEvents = true
+            window.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1); window.acceptsMouseMovedEvents = true
             window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle, .fullScreenAuxiliary]
             panel = window
         }
