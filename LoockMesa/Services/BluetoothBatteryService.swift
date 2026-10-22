@@ -109,9 +109,9 @@ final class BluetoothBatteryService: NSObject, ObservableObject {
             let selector = NSSelectorFromString(name)
             guard object.responds(to: selector),
                   let method = class_getInstanceMethod(type(of: object), selector),
-                  method_getNumberOfArguments(method) == 2,
-                  let type = method_copyReturnType(method) else { continue }
-            let encoding = String(cString: type); free(type)
+                  method_getNumberOfArguments(method) == 2 else { continue }
+            let returnType = method_copyReturnType(method)
+            let encoding = String(cString: returnType); free(returnType)
             let implementation = method_getImplementation(method)
             let value: Int64
             switch encoding {
