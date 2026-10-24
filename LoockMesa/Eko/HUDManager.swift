@@ -248,10 +248,13 @@ class MediaKeyManager: ObservableObject {
             guard self.isMonitoring else { return }
             if self.isAccessibilityGranted != granted { self.isAccessibilityGranted = granted }
             self.addAudioListener()
+            self.refreshObservedVolume()
             self.startPollingBrightness()
             if !granted { self.stopEventTap() }
-            if granted && self.eventPort == nil {
-                self.startIntercepting()
+            if granted {
+                if let port = self.eventPort, !CFMachPortIsValid(port) { self.stopEventTap() }
+                if let port = self.eventPort { CGEvent.tapEnable(tap: port, enable: true) }
+                else { self.startIntercepting() }
             }
         }
     }
@@ -459,6 +462,7 @@ class MediaKeyManager: ObservableObject {
             if let port = manager.eventPort {
                 // Re-ativa o tap de forma assíncrona para não travar o loop
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    guard manager.isMonitoring, manager.eventPort == port, CFMachPortIsValid(port) else { return }
                     CGEvent.tapEnable(tap: port, enable: true)
                 }
             }
@@ -557,13 +561,12 @@ class MediaKeyManager: ObservableObject {
                         self.refreshObservedVolume()
                     }
                 }
-                guard revision == self.volumeRevision, !self.volumeWriteInFlight,
+                guard self.isMonitoring, revision == self.volumeRevision, !self.volumeWriteInFlight,
                       let value = value else { return }
-                let changed = self.displayedVolume.map { abs($0 - value) > 0.0001 } ?? true
+                let changed = self.displayedVolume.map { abs($0 - value) > 0.0001 } ?? false
                 self.displayedVolume = value
-                // A Control Strip drag cannot be consumed by a media-key event tap.
-                // Show our observer HUD only while the native helper is confirmed paused.
-                if changed && NativeHUDController.shared.isSuppressing {
+                // Display feedback independently of the native HUD replacement helper.
+                if changed {
                     self.onVolumeChange?(value)
                 }
             }
@@ -736,6 +739,11 @@ final class NativeHUDController: ObservableObject {
     @Published private(set) var preferred = (UserDefaults.standard.object(forKey: "GergelimPreferNativeReplacement") as? Bool) ?? true
     @Published private(set) var enabled = false
     @Published private(set) var status = "Modo Touch Bar experimental desativado"
+    private var requested = false
+    private var recoveryAttempt = 0
+    private var recovery: DispatchWorkItem?
+    private var recoveryBlocked = false
+    private var outputBuffer = ""
     private var process: Process?
     private var input: Pipe?
     private var heartbeat: DispatchSourceTimer?
@@ -748,6 +756,9 @@ final class NativeHUDController: ObservableObject {
             UserDefaults.standard.set(value, forKey: "GergelimPreferNativeReplacement")
         }
         dispatchPrecondition(condition: .onQueue(.main))
+        requested = value
+        recovery?.cancel(); recovery = nil
+        if persist { recoveryAttempt = 0; recoveryBlocked = false }
         if !value { stop(); return }
         guard process == nil else { return }
         if NSWorkspace.shared.runningApplications.contains(where: { $0.localizedName == "MediaMate" }) {
@@ -758,6 +769,8 @@ final class NativeHUDController: ObservableObject {
             status = "Componente da Touch Bar ausente nesta compilação."
             return
         }
+        outputBuffer = ""
+        recoveryBlocked = false
         let child = Process()
         let pipe = Pipe()
         child.executableURL = executable
@@ -771,9 +784,18 @@ final class NativeHUDController: ObservableObject {
             let message = String(decoding: data, as: UTF8.self)
             DispatchQueue.main.async {
                 guard let self = self, self.process === child else { return }
-                if message.contains("active") { self.isSuppressing = true; self.status = "Modo Touch Bar ativo — teste o arraste" }
-                if message.contains("conflict") { self.status = "Indicador nativo já controlado por outro processo." }
-                if message.contains("failed") { self.status = "O macOS não permitiu controlar o indicador nativo." }
+                self.outputBuffer += message
+                while let newline = self.outputBuffer.firstIndex(of: "\n") {
+                    let line = String(self.outputBuffer[..<newline])
+                    self.outputBuffer.removeSubrange(...newline)
+                    switch line {
+                    case "active": self.isSuppressing = true; self.recoveryAttempt = 0; self.status = "Modo Touch Bar ativo — teste o arraste"
+                    case "waiting", "restored": self.isSuppressing = false
+                    case "conflict": self.isSuppressing = false; self.recoveryBlocked = true; self.status = "Indicador nativo já controlado por outro processo."
+                    case "failed": self.isSuppressing = false; self.recoveryBlocked = true; self.status = "O macOS não permitiu controlar o indicador nativo."
+                    default: break
+                    }
+                }
             }
         }
         child.terminationHandler = { [weak self] ended in
@@ -787,7 +809,16 @@ final class NativeHUDController: ObservableObject {
                 self.process = nil
                 self.enabled = false
                 self.isSuppressing = false
-                self.status = "Modo encerrado (código \(ended.terminationStatus))."
+                if !self.recoveryBlocked { self.status = "Modo encerrado (código \(ended.terminationStatus))." }
+                if self.requested && !self.recoveryBlocked && self.recoveryAttempt < 3 {
+                    self.recoveryAttempt += 1
+                    let retry = DispatchWorkItem { [weak self] in
+                        guard let self, self.requested else { return }
+                        self.setEnabled(true, persist: false)
+                    }
+                    self.recovery = retry
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(self.recoveryAttempt), execute: retry)
+                }
             }
         }
         do { try child.run() } catch {
@@ -803,13 +834,21 @@ final class NativeHUDController: ObservableObject {
         timer.schedule(deadline: .now(), repeating: 0.5)
         timer.setEventHandler { [weak self] in
             do { try pipe.fileHandleForWriting.write(contentsOf: Data([1])) }
-            catch { DispatchQueue.main.async { self?.stop() } }
+            catch { DispatchQueue.main.async {
+                guard let self, self.process === child else { return }
+                self.heartbeat?.cancel(); self.heartbeat = nil
+                try? self.input?.fileHandleForWriting.close(); self.input = nil
+                // EOF lets the child restore the native indicator, then its exit
+                // handler restarts it if the preference is still enabled.
+            } }
         }
         heartbeat = timer
         timer.resume()
     }
 
     func stop() {
+        requested = false
+        recovery?.cancel(); recovery = nil
         heartbeat?.cancel()
         heartbeat = nil
         // EOF restores the native HUD even if the app exits immediately afterwards.

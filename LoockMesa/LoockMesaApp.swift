@@ -79,6 +79,9 @@ struct GergelimApp: App {
                     default: self.screenAsleep = false
                     }
                     self.updateActivity()
+                    if eventName == NSWorkspace.didWakeNotification || eventName == NSWorkspace.screensDidWakeNotification {
+                        self.integration?.recoverHUD()
+                    }
                 }
             })
         }
@@ -138,10 +141,10 @@ struct GergelimApp: App {
             }
         }
         unlockObserver = DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.revealDesktop() }
+            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.integration?.recoverHUD(); self?.revealDesktop() }
         }
         activityObservers.append(center.addObserver(forName: NSWorkspace.sessionDidBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.revealDesktop() }
+            Task { @MainActor [weak self] in self?.screenLocked = false; self?.updateActivity(); self?.integration?.recoverHUD(); self?.revealDesktop() }
         })
     }
     private func refreshDesktopFocus(_ app: NSRunningApplication?) {

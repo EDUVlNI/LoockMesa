@@ -48,6 +48,12 @@ final class LumeCoordinator: ObservableObject {
             hud.stop()
         }
     }
+    func recoverHUD() {
+        guard hudEnabled else { return }
+        MediaKeyManager.shared.stop()
+        hud.stop()
+        updateHUD()
+    }
     func stop() {
         capsule.stop()
         player.stop()

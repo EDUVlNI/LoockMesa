@@ -80,11 +80,7 @@ struct BatteryEntry: Identifiable, Equatable {
         if let mac { result.append(.init(id: "mac", label: "Mac", symbol: "laptopcomputer", value: mac, charging: charging)) }
         var seen = Set<String>()
         for r in readings where seen.insert(r.id).inserted {
-            if r.isArcMouse {
-                result.append(.init(id: r.id + ".main", label: r.name, symbol: r.symbol,
-                    value: 100, arcMouse: true, simulated: true))
-                continue
-            }
+            if r.symbol == "computermouse" { continue }
             if r.left != nil || r.right != nil {
                 if let value = r.left { result.append(.init(id: r.id + ".left", label: r.name + " E", symbol: r.symbol, value: value, freeClip: r.isFreeClip)) }
                 if let value = r.right { result.append(.init(id: r.id + ".right", label: r.name + " D", symbol: r.symbol, value: value, freeClip: r.isFreeClip)) }
