@@ -3,5 +3,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 check_dir=$(mktemp -d "${TMPDIR:-/tmp}/mesa-ui-checks.XXXXXX")
 trap 'rm -rf "$check_dir"' EXIT
-xcrun swiftc -module-cache-path "$check_dir/modules" LoockMesa/Models/*.swift LoockMesa/Services/*.swift LoockMesa/Components/*.swift LoockMesa/Views/*.swift Tests/DragChecks.swift -o "$check_dir/checks"
+xcrun swiftc -module-cache-path "$check_dir/modules" LoockMesa/Models/*.swift LoockMesa/Services/*.swift LoockMesa/Components/*.swift LoockMesa/Views/*.swift LoockMesa/Eko/*.swift Tests/DragChecks.swift -o "$check_dir/checks"
 "$check_dir/checks"

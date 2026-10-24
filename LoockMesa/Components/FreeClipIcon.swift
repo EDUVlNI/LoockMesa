@@ -73,3 +73,38 @@ enum FreeClipSymbol {
         return parts.map { Part(path: $0.path.applying(transform), cutout: $0.cutout) }
     }
 }
+
+
+/// Side silhouette traced from the supplied Microsoft Surface Arc reference.
+struct ArcMouseIcon: View {
+    var body: some View {
+        GeometryReader { g in
+            let scale = min(g.size.width / 100, g.size.height / 64)
+            let transform = CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: (g.size.width - 100 * scale) / 2, y: (g.size.height - 64 * scale) / 2))
+            Path { p in
+                p.move(to: CGPoint(x: 3, y: 52))
+                p.addCurve(to: CGPoint(x: 43, y: 18), control1: CGPoint(x: 13, y: 43), control2: CGPoint(x: 30, y: 27))
+                p.addCurve(to: CGPoint(x: 71, y: 7), control1: CGPoint(x: 53, y: 9), control2: CGPoint(x: 62, y: 5))
+                p.addCurve(to: CGPoint(x: 98, y: 56), control1: CGPoint(x: 88, y: 10), control2: CGPoint(x: 96, y: 40))
+                p.addQuadCurve(to: CGPoint(x: 92, y: 58), control: CGPoint(x: 99, y: 60))
+                p.addCurve(to: CGPoint(x: 70, y: 18), control1: CGPoint(x: 86, y: 35), control2: CGPoint(x: 81, y: 20))
+                p.addCurve(to: CGPoint(x: 45, y: 28), control1: CGPoint(x: 62, y: 15), control2: CGPoint(x: 54, y: 22))
+                p.addLine(to: CGPoint(x: 44, y: 38))
+                p.addCurve(to: CGPoint(x: 9, y: 59), control1: CGPoint(x: 29, y: 48), control2: CGPoint(x: 17, y: 58))
+                p.addQuadCurve(to: CGPoint(x: 3, y: 52), control: CGPoint(x: 2, y: 60))
+                p.closeSubpath()
+            }.applying(transform).fill(.primary)
+        }
+    }
+}
+
+struct BluetoothDeviceIcon: View {
+    let device: BluetoothReading
+    var body: some View {
+        Group {
+            if device.isArcMouse { ArcMouseIcon() }
+            else if device.isFreeClip { FreeClipIcon() }
+            else { Image(systemName: device.symbol).resizable().scaledToFit().padding(4) }
+        }
+    }
+}

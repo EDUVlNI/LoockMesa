@@ -201,6 +201,7 @@ struct ModernClockWidget: View {
     let digital: Bool
     var dark: Bool
     var frosted: Bool
+    var dialStyle = "analog"
     var lowPower = false
     var desktopInactive = false
     @StateObject private var playback = ClockPlaybackState()
@@ -211,7 +212,12 @@ struct ModernClockWidget: View {
             let side = min(geometry.size.width, geometry.size.height)
             let ink: Color = dark ? .white : .black
             ZStack {
-                ClockDialDrawing(size: size, digital: digital, ink: ink, angles: playback.angles)
+                ClockDialDrawing(size: size, digital: digital, ink: ink, angles: playback.angles, elongated: dialStyle == "extended" || dialStyle == "dated")
+                if dialStyle == "dated" {
+                    Text(playback.snapshot.date, format: .dateTime.weekday(.abbreviated).day().locale(Locale(identifier: "pt_BR")))
+                        .textCase(.uppercase).font(.system(size: side * 0.065, weight: .bold)).foregroundStyle(.orange)
+                        .offset(y: side * 0.15)
+                }
                 if digital {
                     AnimatedValue(value: playback.snapshot.date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)))
                         .font(ClockTypography.digital(size: side * (size == .medium ? 0.70 : 0.64)))
@@ -233,16 +239,23 @@ struct ClockFaceGeometry {
     let dial: CGRect
     let corner: CGFloat
     let marks: [ClockPerimeter.Mark]
+    let radialMarks: [ClockPerimeter.Mark]
     private static func make(_ size: WidgetSize) -> Self {
         let dimensions = size.dimensions
         let dial = CGRect(x: 7, y: 7, width: dimensions.width - 14, height: dimensions.height - 14)
-        return Self(dial: dial, corner: 16, marks: (0..<60).map { ClockPerimeter.mark(index: $0, in: dial, corner: 16) })
+        let radial = (0..<60).map { index -> ClockPerimeter.Mark in
+            let angle = Double(index) * .pi / 30
+            let direction = CGVector(dx: sin(angle), dy: -cos(angle))
+            let radius = ClockPerimeter.rayDistance(dx: direction.dx, dy: direction.dy, in: dial, corner: 16)
+            return ClockPerimeter.Mark(point: CGPoint(x: dial.midX + direction.dx * radius, y: dial.midY + direction.dy * radius), normal: direction)
+        }
+        return Self(dial: dial, corner: 16, marks: (0..<60).map { ClockPerimeter.mark(index: $0, in: dial, corner: 16) }, radialMarks: radial)
     }
     private static let small = make(.small)
     private static let medium = make(.medium)
     private static let large = make(.large)
     static func forSize(_ size: WidgetSize) -> Self {
-        switch size { case .small: return small; case .medium: return medium; case .large: return large }
+        switch size { case .small: return small; case .medium: return medium; case .large: return large; case .wide, .extraWide: return make(size) }
     }
 }
 
@@ -251,6 +264,7 @@ struct ClockDialDrawing: View, Animatable {
     let digital: Bool
     let ink: Color
     var angles: ClockHandAngles
+    var elongated = false
     var animatableData: AnimatablePair<Double, AnimatablePair<Double, Double>> {
         get { AnimatablePair(angles.hour, AnimatablePair(angles.minute, angles.second)) }
         set { angles = ClockHandAngles(hour: newValue.first, minute: newValue.second.first, second: newValue.second.second) }
@@ -264,10 +278,10 @@ struct ClockDialDrawing: View, Animatable {
             let corner = geometry.corner
             let second = (angles.second * 30 / .pi).truncatingRemainder(dividingBy: 60)
             for i in 0..<60 {
-                let mark = geometry.marks[i]
+                let mark = elongated ? geometry.radialMarks[i] : geometry.marks[i]
                 let active = max(0, 1 - abs(second - Double(i)))
                 let elapsed = Double(i) <= second
-                let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? 0.050 : 0.027))
+                let baseLength = side * (digital ? 0.040 : (i % 5 == 0 ? (elongated && i % 15 != 0 ? 0.19 : 0.050) : 0.027))
                 let length = baseLength + side * CGFloat(active) * 0.016
                 var path = Path()
                 path.move(to: CGPoint(x: mark.point.x - mark.normal.dx * length, y: mark.point.y - mark.normal.dy * length))
@@ -334,14 +348,16 @@ enum ClockPerimeter {
     }
     static func rayDistance(dx: CGFloat, dy: CGFloat, in rect: CGRect, corner: CGFloat) -> CGFloat {
         let halfWidth = rect.width / 2, halfHeight = rect.height / 2
-        var lo: CGFloat = 0, hi = hypot(halfWidth, halfHeight)
-        for _ in 0..<18 {
-            let t = (lo + hi) / 2
-            let qx = max(abs(dx * t) - (halfWidth - corner), 0)
-            let qy = max(abs(dy * t) - (halfHeight - corner), 0)
-            if hypot(qx, qy) <= corner { lo = t } else { hi = t }
-        }
-        return lo
+        let x = abs(dx), y = abs(dy)
+        let straight = min(x > 0 ? halfWidth / x : .infinity, y > 0 ? halfHeight / y : .infinity)
+        if x * straight <= halfWidth - corner || y * straight <= halfHeight - corner { return straight }
+        // Exact ray/corner-circle intersection avoids 18 searches per hand/frame.
+        let cx = halfWidth - corner, cy = halfHeight - corner
+        let squared = x * x + y * y
+        guard squared > 0 else { return 0 }
+        let dot = x * cx + y * cy
+        let discriminant = max(0, dot * dot - squared * (cx * cx + cy * cy - corner * corner))
+        return (dot + sqrt(discriminant)) / squared
     }
 }
 struct DateCardWidget: View {
@@ -406,6 +422,11 @@ final class GalleryDragHost: NSView {
     required init?(coder: NSCoder) { fatalError("Not used") }
     override func layout() { super.layout(); hosted.frame = bounds }
     override func hitTest(_ point: NSPoint) -> NSView? { bounds.contains(convert(point, from: superview)) ? self : nil }
+    override func scrollWheel(with event: NSEvent) {
+        // The preview is a drag surface, not a scroll container.
+        if let scroll = enclosingScrollView { scroll.scrollWheel(with: event) }
+        else { super.scrollWheel(with: event) }
+    }
     override func mouseDown(with event: NSEvent) {
         guard let window else { return }
         while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture, inMode: .eventTracking, dequeue: true) {

@@ -9,12 +9,15 @@ enum WidgetKind: String, CaseIterable, Codable, Identifiable {
     var symbol: String { switch self { case .screenTime: return "hourglass"; case .musicLyrics: return "text.bubble"; case .music: return "music.note"; case .headphones: return "headphones"; case .weather: return "cloud.sun.fill"; case .clock: return "clock"; case .macBattery: return "laptopcomputer"; case .reminders: return "list.bullet"; case .notes: return "note.text"; case .calendar: return "calendar" } }
 }
 enum WidgetSize: String, CaseIterable, Codable, Identifiable {
-    case small = "P", medium = "M", large = "G"
+    case small = "P", medium = "M", large = "G", wide = "Largo", extraWide = "Extra largo"
+    static var allCases: [WidgetSize] { [.small, .medium, .large] }
     var id: String { rawValue }
     var dimensions: CGSize {
         switch self { case .small: return CGSize(width: 164, height: 164)
         case .medium: return CGSize(width: 344, height: 164)
-        case .large: return CGSize(width: 344, height: 344) }
+        case .large: return CGSize(width: 344, height: 344)
+        case .wide: return CGSize(width: 704, height: 164)
+        case .extraWide: return CGSize(width: 884, height: 164) }
     }
 }
 struct WidgetItem: Codable, Equatable, Identifiable {
@@ -91,7 +94,7 @@ struct DeskPreferences: Codable, Equatable {
             if widgets[i].kind == .clock && widgets[i].variant == "digital" && widgets[i].size == .large {
                 widgets[i].size = .medium
             }
-            if widgets[i].kind == .calendar && widgets[i].variant == "date" { widgets[i].size = .medium }
+            if widgets[i].kind == .calendar && widgets[i].variant == "date" && widgets[i].size == .large { widgets[i].size = .medium }
         }
     }
 }

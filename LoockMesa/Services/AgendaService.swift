@@ -49,13 +49,28 @@ final class AgendaService: ObservableObject {
         notesGeneration += 1; notesConnected = false
         notesStatus = "Nota local do Loock"
     }
-    func connectNotes() {
-        guard !notesLoading else { return }
+    private let notesQueue = DispatchQueue(label: "gergelim.notes", qos: .utility)
+    private var lastNotesRefresh = Date.distantPast
+    func connectNotes() { refreshNotes(userInitiated: true) }
+    private func refreshNotes(userInitiated: Bool) {
+        guard !notesLoading, !paused else { return }
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").contains { !$0.isTerminated }
+        guard NotesRefreshPolicy.shouldRead(userInitiated: userInitiated, running: running,
+                                           elapsed: Date().timeIntervalSince(lastNotesRefresh)) else { return }
+        lastNotesRefresh = Date()
         notesLoading = true
         let generation = notesGeneration
-        notesStatus = "Consultando Notas…"
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        if userInitiated { notesStatus = "Consultando Notas…" }
+        notesQueue.async { [weak self] in
+            // A periodic refresh must not relaunch an app the user closed.
+            if !userInitiated && !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").contains(where: { !$0.isTerminated }) {
+                DispatchQueue.main.async { self?.notesLoading = false }
+                return
+            }
             let script = NSAppleScript(source: """
+            if not \(userInitiated ? "true" : "false") then
+                if application "Notes" is not running then return {"", "", "closed"}
+            end if
             tell application "Notes"
                 if (count of notes) is 0 then return {"Nenhuma nota", ""}
                 set currentNote to first note
@@ -71,9 +86,15 @@ final class AgendaService: ObservableObject {
                 guard let self else { return }
                 self.notesLoading = false
                 guard generation == self.notesGeneration else { return }
-                self.notesConnected = succeeded
-                if succeeded { self.noteTitle = title; self.noteText = body }
-                self.notesStatus = succeeded ? "Notas da Apple · primeira nota da lista" : "Não foi possível ler Notas. Autorize em Privacidade → Automação."
+                if succeeded {
+                    if !self.notesConnected { self.notesConnected = true }
+                    if self.noteTitle != title { self.noteTitle = title }
+                    if self.noteText != body { self.noteText = body }
+                    let status = "Notas da Apple · atualiza enquanto o Notas está aberto"
+                    if self.notesStatus != status { self.notesStatus = status }
+                } else if userInitiated {
+                    self.notesStatus = "Não foi possível ler Notas. Autorize em Privacidade → Automação."
+                }
             }
         }
     }
@@ -82,7 +103,8 @@ final class AgendaService: ObservableObject {
     private var timer: Timer?
     private var paused = false
     func setPaused(_ value: Bool) { guard paused != value else { return }; paused = value; if !value { refresh() } }
-    init() {
+    init(preview: [CalendarEntry]? = nil) {
+        if let preview { entries = preview; connected = true; status = "Nenhum evento"; return }
         observer = NotificationCenter.default.addObserver(forName: .EKEventStoreChanged, object: store, queue: .main) { [weak self] _ in self?.refresh() }
         timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in self?.refresh() }
         timer?.tolerance = 30
@@ -95,7 +117,7 @@ final class AgendaService: ObservableObject {
     func refresh() {
         guard !paused else { return }
         refreshReminders()
-        if notesConnected { connectNotes() }
+        if notesConnected { refreshNotes(userInitiated: false) }
         let authorization = EKEventStore.authorizationStatus(for: .event)
         guard authorization == .authorized else {
             entries = []; connected = false
@@ -104,9 +126,10 @@ final class AgendaService: ObservableObject {
         }
         connected = true
         let now = Date(); let end = Calendar.current.date(byAdding: .day, value: 7, to: now)!
-        let predicate = store.predicateForEvents(withStart: now, end: end, calendars: nil)
-        entries = store.events(matching: predicate).filter { $0.endDate > now }.sorted { $0.startDate < $1.startDate }.prefix(8).enumerated().map { index, event in
-            CalendarEntry(id: (event.eventIdentifier ?? "event") + "-\(index)", title: event.title?.isEmpty == false ? event.title! : "Evento sem título", start: event.startDate, end: event.endDate, allDay: event.isAllDay)
+        let predicate = store.predicateForEvents(withStart: Calendar.current.startOfDay(for: now), end: end, calendars: nil)
+        entries = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }.prefix(250).enumerated().map { index, event in
+            let color = NSColor(cgColor: event.calendar.cgColor)?.usingColorSpace(.deviceRGB) ?? .systemRed
+            return CalendarEntry(id: (event.eventIdentifier ?? "event") + "-\(index)", title: event.title?.isEmpty == false ? event.title! : "Evento sem título", start: event.startDate, end: event.endDate, allDay: event.isAllDay, red: Double(color.redComponent), green: Double(color.greenComponent), blue: Double(color.blueComponent))
         }
         status = entries.isEmpty ? "Nenhum evento nos próximos 7 dias" : "Agenda do Mac · próximos 7 dias"
     }
@@ -127,4 +150,11 @@ func openWidgetApp(_ kind: WidgetKind) {
     }
     guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: identifier) else { return }
     NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
+}
+
+/// Background refreshes preserve the last snapshot when Notes is closed.
+enum NotesRefreshPolicy {
+    static func shouldRead(userInitiated: Bool, running: Bool, elapsed: TimeInterval) -> Bool {
+        userInitiated || (running && elapsed >= 60)
+    }
 }

@@ -422,7 +422,7 @@ final class WidgetHost: NSHostingView<WidgetFace> {
         guard !reconciling, !dragging else { return }
         reconciling = true; defer { reconciling = false }
         MusicService.shared.collectsSpotifyCovers = store.preferences.automaticSpotifyCovers != false
-        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: (isVisible && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
+        MusicService.shared.configure(provider: store.preferences.musicProvider ?? .automatic, enabled: MediaRemoteWrapper.shared.wantsPlayback || (isVisible && (store.item(.music).enabled || store.item(.musicLyrics).enabled)))
         LyricsService.shared.configure(enabled: (isVisible && store.item(.musicLyrics).enabled))
         weather.configure(city: store.preferences.city, live: store.preferences.liveWeather)
         updateGuides()

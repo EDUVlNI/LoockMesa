@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+final class ScrollProbe: NSScrollView {
+    var received = false
+    override func scrollWheel(with event: NSEvent) { received = true }
+}
+
 @main struct DragChecks {
     @MainActor static func main() {
         _ = NSApplication.shared
@@ -11,6 +16,14 @@ import SwiftUI
         for size in WidgetSize.allCases {
             let dimensions = size.dimensions
             let rect = CGRect(x: 7, y: 7, width: dimensions.width - 14, height: dimensions.height - 14)
+            for degree in 0..<360 {
+                let a = Double(degree) * .pi / 180
+                let dx = sin(a), dy = cos(a)
+                let distance = ClockPerimeter.rayDistance(dx: dx, dy: dy, in: rect, corner: 16)
+                let qx = max(abs(dx * distance) - (rect.width / 2 - 16), 0)
+                let qy = max(abs(dy * distance) - (rect.height / 2 - 16), 0)
+                precondition(abs(hypot(qx, qy) - 16) < 0.0001, "Clock rays must end on the rounded contour")
+            }
             for index in 0..<60 {
                 let mark = ClockPerimeter.mark(index: index, in: rect, corner: 16)
                 precondition(mark.point.x >= rect.minX - 0.001 && mark.point.x <= rect.maxX + 0.001)
@@ -77,6 +90,12 @@ import SwiftUI
         precondition(galleryHost.hitTest(CGPoint(x: 100, y: 100)) === galleryHost, "Gallery must capture pointer over hosted SwiftUI content")
         precondition(galleryHost.hitTest(CGPoint(x: 10, y: 10)) == nil, "Outside gallery bounds must not capture input")
         print("PASS: gallery native drag host owns preview hit target and rejects outside points")
+        let scroll = ScrollProbe(frame: CGRect(x: 0, y: 0, width: 700, height: 300))
+        scroll.documentView = container
+        let wheel = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -40, wheel2: 0, wheel3: 0)!
+        galleryHost.scrollWheel(with: NSEvent(cgEvent: wheel)!)
+        precondition(scroll.received, "Scrolling over a widget preview must reach the enclosing scroll view")
+
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 344, height: 164), styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         var starts = 0

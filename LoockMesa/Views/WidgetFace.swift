@@ -30,12 +30,12 @@ struct WidgetFace: View {
             case .music: MusicWidget(size: size, store: store, media: music, appearance: appearance, forcedFrosted: frost)
             case .headphones: HeadphonesWidget(size: size, demo: store.preferences.demoHeadphones, bluetooth: bluetooth, devices: devices, light: appearance == .light, frosted: frost, monochrome: false)
             case .weather: WeatherWidget(size: size, city: store.preferences.city.rawValue, service: weather, variant: chosenVariant, appearance: appearance, frosted: frost)
-            case .clock: ModernClockWidget(size: size, digital: chosenVariant == "digital", dark: appearance != .light, frosted: frost, lowPower: devices.lowPower, desktopInactive: outsideDesktopEffect)
+            case .clock: ModernClockWidget(size: size, digital: chosenVariant == "digital", dark: appearance != .light, frosted: frost, dialStyle: chosenVariant, lowPower: devices.lowPower, desktopInactive: outsideDesktopEffect)
             case .macBattery: MacBatteryWidget(size: size, devices: devices, light: appearance == .light, frosted: frost)
             case .reminders: RemindersWidget(size: size, agenda: agenda, light: appearance == .light, frosted: frost)
             case .notes: NotesWidget(size: size, store: store, agenda: agenda, light: appearance == .light, frosted: frost)
             case .screenTime: EmptyView()
-            case .calendar: if chosenVariant == "date" { DateCardWidget(size: size, dark: appearance != .light, frosted: frost) } else { CalendarWidget(size: size, agenda: agenda, dark: appearance != .light, frosted: frost) }
+            case .calendar: if chosenVariant == "date" { DateAgendaWidget(size: size, agenda: agenda, dark: appearance != .light, frosted: frost) } else if chosenVariant == "schedule" { ScheduleWidget(size: size, agenda: agenda, dark: appearance != .light, frosted: frost) } else { CalendarWidget(size: size, agenda: agenda, dark: appearance != .light, frosted: frost) }
             }
         }.environment(\.clearWidgetSurface, false)
             .environment(\.widgetPreview, preview)
@@ -131,14 +131,15 @@ struct HeadphonesWidget: View {
         let entry = index < visible.count ? visible[index] : nil
         return VStack(spacing: size == .large ? 12 : 14) {
             BatteryRing(symbol: entry?.symbol ?? "", value: entry?.value, dimension: dimension,
-                freeClip: entry?.freeClip ?? false, charging: entry?.charging ?? false,
+                freeClip: entry?.freeClip ?? false, arcMouse: entry?.arcMouse ?? false, charging: entry?.charging ?? false,
                 light: light, monochrome: monochrome, lowPower: entry?.symbol == "laptopcomputer" && devices.lowPower)
+                .help(entry?.label ?? "")
             if size != .small {
                 HStack(alignment: .firstTextBaseline, spacing: 1) {
-                    AnimatedValue(value: entry.map { String($0.value) } ?? "0")
+                    AnimatedValue(value: entry?.value.map(String.init) ?? "—")
                         .font(.system(size: size == .large ? 23 : 21, weight: .regular))
                         .monospacedDigit().tracking(-0.4)
-                    Text("%")
+                    Text(entry?.value == nil ? "" : "%")
                         .font(.system(size: size == .large ? 19 : 17, weight: .regular))
                 }
                 // Identical metrics for occupied and empty slots keep both rows centered.
@@ -148,7 +149,7 @@ struct HeadphonesWidget: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(entry.map { "\($0.label), \($0.value) por cento" } ?? "Posição livre")
+        .accessibilityLabel(entry.map { "\($0.label), " + ($0.value.map { "\($0) por cento" } ?? "bateria não informada") } ?? "Posição livre")
     }
 }
 

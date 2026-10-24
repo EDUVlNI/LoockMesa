@@ -3,6 +3,7 @@ import AppKit
 
 @main struct ClockRenderingChecks {
     @MainActor static func main() throws {
+        setbuf(stdout, nil)
         _ = NSApplication.shared
         let colorFixture = NSImage(size: NSSize(width: 48, height: 48))
         colorFixture.lockFocus()
@@ -17,6 +18,20 @@ import AppKit
         neutralFixture.lockFocus(); NSColor.gray.setFill(); NSRect(x: 0, y: 0, width: 24, height: 24).fill(); neutralFixture.unlockFocus()
         precondition(ArtworkPalette.colors(from: neutralFixture).allSatisfy { abs($0.redComponent - $0.greenComponent) < 0.02 && abs($0.greenComponent - $0.blueComponent) < 0.02 })
         print("PASS: artwork palette preserves real colors and neutral covers")
+        let migrationDefaults = UserDefaults(suiteName: "Gergelim.MigrationTest")!
+        migrationDefaults.removePersistentDomain(forName: "Gergelim.MigrationTest")
+        GergelimMigration.run(defaults: migrationDefaults, readDomain: { domain in
+            domain == "com.eduvini.LoockMesa" ? ["LoockMesa.preferences.v4": Data([1, 2, 3])] : ["CapsuleScale": 1.25, "ElementOrderV4": ["time", "music", "battery"]]
+        })
+        precondition(migrationDefaults.data(forKey: "LoockMesa.preferences.v4") == Data([1, 2, 3]))
+        precondition(migrationDefaults.double(forKey: "CapsuleScale") == 1.25)
+        precondition(migrationDefaults.stringArray(forKey: "ElementOrderV4") == ["time", "battery"])
+        migrationDefaults.set(1.4, forKey: "CapsuleScale")
+        GergelimMigration.run(defaults: migrationDefaults, readDomain: { _ in ["CapsuleScale": 0.8] })
+        precondition(migrationDefaults.double(forKey: "CapsuleScale") == 1.4)
+        migrationDefaults.removePersistentDomain(forName: "Gergelim.MigrationTest")
+        precondition(GergelimSeed.image().isTemplate)
+        print("PASS: Gergelim one-time preference migration preserves customization and removes capsule music")
         let outputDirectory = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? NSTemporaryDirectory(), isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
         func analog(_ inactive: Bool) -> some View {
@@ -31,6 +46,36 @@ import AppKit
             try data.write(to: outputDirectory.appendingPathComponent(file))
             return data
         }
+        let arc = BluetoothReading(name: "Microsoft Arc de Eduardo", overall: 63, left: nil, right: nil, caseLevel: nil)
+        let notice = BluetoothPopupController(duration: 0.4)
+        notice.enqueue(arc, connected: true, bottom: false)
+        notice.refresh([])
+        HUDState.shared.hide()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+        precondition(notice.isPresenting, "Missing battery sample and music dismissal must not hide Bluetooth notice")
+        notice.enqueue(arc, connected: false, bottom: false)
+        precondition(notice.queuedCount == 1, "Disconnect must queue behind connection")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.35))
+        precondition(!notice.isPresenting, "Notice must exit after its own duration")
+        notice.stop()
+        precondition(!notice.isPresenting && notice.queuedCount == 0)
+        let bottomHost = NSHostingView(rootView: DeviceConnectionView(device: arc, isVisible: true, connected: false, bottom: true).background(Color(red: 0.12, green: 0.13, blue: 0.16)))
+        bottomHost.frame = CGRect(x: 0, y: 0, width: 450, height: 300)
+        let bottomWindow = NSWindow(contentRect: bottomHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        bottomWindow.contentView = bottomHost
+        RunLoop.main.run(until: Date().addingTimeInterval(0.7))
+        _ = try capture(bottomHost, "bluetooth-disconnect-bottom.png")
+        let connectionHost = NSHostingView(rootView: DeviceConnectionView(device: arc, isVisible: true).background(Color(red: 0.12, green: 0.13, blue: 0.16)))
+        connectionHost.frame = CGRect(x: 0, y: 0, width: 450, height: 200)
+        let connectionWindow = NSWindow(contentRect: connectionHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        connectionWindow.contentView = connectionHost
+        RunLoop.main.run(until: Date().addingTimeInterval(0.7))
+        _ = try capture(connectionHost, "bluetooth-arc-popup.png")
+        let arcHost = NSHostingView(rootView: BatteryRing(symbol: "computermouse", value: 63, dimension: 100, arcMouse: true).padding(24).background(Color(red: 0.16, green: 0.17, blue: 0.32)))
+        arcHost.frame = CGRect(x: 0, y: 0, width: 148, height: 148)
+        let arcWindow = NSWindow(contentRect: arcHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        arcWindow.contentView = arcHost
+        _ = try capture(arcHost, "bluetooth-arc-ring.png")
         let analogHost = NSHostingView(rootView: analog(false))
         analogHost.frame = CGRect(x: 0, y: 0, width: 164, height: 164)
         let analogWindow = NSWindow(contentRect: analogHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -110,7 +155,68 @@ import AppKit
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         _ = try capture(musicHost, "music-matte.png")
         media.stop()
-        withExtendedLifetime((analogWindow, digitalWindow, previewWindows)) {}
+        for position in HUDPosition.allCases {
+            let host = NSHostingView(rootView: IOSHUDView(value: 0.65, icon: "speaker.wave.3.fill", isVisible: true, position: position))
+            host.frame = CGRect(x: 0, y: 0, width: 300, height: 300)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; previewWindows.append(window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            _ = try capture(host, "hud-\(position.rawValue).png")
+        }
+        let today = Calendar.current.startOfDay(for: Date())
+        let fixtures = (0..<5).flatMap { offset -> [CalendarEntry] in
+            let day = Calendar.current.date(byAdding: .day, value: offset, to: today)!
+            let hour = offset == 0 ? Calendar.current.component(.hour, from: Date()) : 9
+            let start = Calendar.current.date(bySettingHour: min(hour, 21), minute: 15, second: 0, of: day)!
+            return [CalendarEntry(id: "event-\(offset)", title: "Revisão de projeto com a equipe", start: start, end: start.addingTimeInterval(3600), allDay: false, red: 0.2, green: 0.5, blue: 0.9), CalendarEntry(id: "overlap-\(offset)", title: "Planejamento", start: start.addingTimeInterval(1800), end: start.addingTimeInterval(5400), allDay: false)]
+        }
+        let calendarPreview = AgendaService(preview: fixtures)
+        for theme in 0..<3 {
+            for size in [WidgetSize.small, .medium, .wide, .extraWide] {
+                let host = NSHostingView(rootView: ScheduleWidget(size: size, agenda: calendarPreview, dark: theme != 0, frosted: theme == 2).frame(width: size.dimensions.width, height: size.dimensions.height).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(origin: .zero, size: size.dimensions)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                _ = try capture(host, "agenda-\(theme)-\(size.rawValue).png")
+            }
+            for size in [WidgetSize.small, .medium] {
+                let host = NSHostingView(rootView: DateAgendaWidget(size: size, agenda: calendarPreview, dark: theme != 0, frosted: theme == 2).frame(width: size.dimensions.width, height: size.dimensions.height).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(origin: .zero, size: size.dimensions)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                _ = try capture(host, "date-\(theme)-\(size.rawValue).png")
+            }
+            for variant in ["dated", "extended", "digital"] {
+                let host = NSHostingView(rootView: ModernClockWidget(size: .small, digital: variant == "digital", dark: theme != 0, frosted: theme == 2, dialStyle: variant).frame(width: 164, height: 164).clipShape(RoundedRectangle(cornerRadius: 23)))
+                host.frame = CGRect(x: 0, y: 0, width: 164, height: 164)
+                let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+                window.contentView = host; previewWindows.append(window)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+                _ = try capture(host, "clock-new-\(theme)-\(variant).png")
+            }
+        }
+        let galleryDefaults = UserDefaults(suiteName: "Gergelim.GalleryRendering")!
+        defer { galleryDefaults.removePersistentDomain(forName: "Gergelim.GalleryRendering") }
+        let galleryStore = DeskStore(defaults: galleryDefaults)
+        galleryStore.preferences.surface = .original
+        galleryStore.preferences.appearance = .light
+        let galleryHost = NSHostingView(rootView: GalleryView(store: galleryStore, devices: DeviceService(), weather: weather, bluetooth: BluetoothBatteryService(automatic: false), agenda: calendarPreview))
+        galleryHost.frame = CGRect(x: 0, y: 0, width: 1100, height: 780)
+        let galleryWindow = NSWindow(contentRect: galleryHost.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        galleryWindow.contentView = galleryHost; previewWindows.append(galleryWindow)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        _ = try capture(galleryHost, "gallery-home.png")
+        let imported = LumeCoordinator.shared
+        for page in IntegrationSettingsView.Page.allCases {
+            let host = NSHostingView(rootView: IntegrationSettingsView(coordinator: imported, model: imported.capsule.model, hud: imported.hud, corners: imported.corners, player: imported.player, selected: page).padding(24).frame(width: 650, height: 850, alignment: .topLeading))
+            host.frame = CGRect(x: 0, y: 0, width: 650, height: 850)
+            let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = host; previewWindows.append(window)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+            _ = try capture(host, "gergelim-\(page.id).png")
+        }
+        withExtendedLifetime((analogWindow, digitalWindow, connectionWindow, arcWindow, previewWindows)) {}
 
     }
 }

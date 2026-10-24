@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>pt_BR</string>
 	<key>CFBundleDisplayName</key>
-	<string>Loock Mesa</string>
+	<string>Gergelim</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -13,32 +13,34 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>LoockMesa</string>
+	<string>Gergelim</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.38.1</string>
+	<string>1.5.4</string>
 	<key>CFBundleVersion</key>
-	<string>44</string>
+	<string>15</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Loock Mesa consulta eventos para o widget Calendário. Não cria nem altera eventos.</string>
+	<string>Gergelim consulta eventos para o widget Calendário. Não cria nem altera eventos.</string>
 	<key>NSCalendarsUsageDescription</key>
-	<string>Loock Mesa mostra seus próximos eventos no widget Calendário, somente se você conectar a agenda.</string>
+	<string>Gergelim mostra seus próximos eventos no widget Calendário, somente se você conectar a agenda.</string>
 	<key>NSRemindersUsageDescription</key>
-	<string>Loock Mesa mostra seus lembretes pendentes somente quando você conecta os Lembretes. Não altera suas listas.</string>
+	<string>Gergelim mostra seus lembretes pendentes somente quando você conecta os Lembretes. Não altera suas listas.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
-	<string>Loock Mesa lê lembretes pendentes para o widget, sem alterá-los.</string>
+	<string>Gergelim lê lembretes pendentes para o widget, sem alterá-los.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Loock controla a posição da música no Spotify ou Apple Music quando você usa a barra e lê Notas quando você conecta essa integração.</string>
+	<string>Gergelim controla a posição da música no Spotify ou Apple Music quando você usa a barra e lê Notas quando você conecta essa integração.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Gergelim identifica fones e mostra o estado do Bluetooth.</string>
 </dict>
 </plist>
